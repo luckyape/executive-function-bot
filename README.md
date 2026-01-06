@@ -1,85 +1,72 @@
-# The Executive Function Coach (Telegram Bot)
+# The Life OS (Firebase + MCP Edition)
 
-A proactive "Chief of Staff" Telegram bot that helps you stay aligned with your goals using an Event-Driven architecture and Google Gemini Pro.
+A proactive "Executive Coach" Telegram bot built on Firebase Cloud Functions and Google Gemini Pro using the MCP (Model Context Protocol) pattern for tools.
+
+## Architecture
+
+- **Backend**: Firebase Cloud Functions (2nd Gen) - Serverless Python.
+- **Database**: Google Cloud Firestore (NoSQL).
+- **Intelligence**: Google Gemini Pro (via `google-genai`).
+- **Interface**: Telegram Bot API (Webhook).
+- **Tooling**: MCP-style tool definitions defined in `tools.py` and consumed by the Agent.
 
 ## Features
 
-- **Event-Driven Architecture**: Uses a scheduler to send unsolicited "Push" messages.
-- **Context Aware**: Remembers the last 10 messages of conversation.
-- **Task Management**: Automatically extracts tasks from conversation and tracks them in a Supabase database.
-- **Morning Push**: Sends a morning briefing at 8 AM local time with your Manifesto and critical tasks.
-- **Manifesto Alignment**: The "Brain" (LLM) constantly steers you back to your "North Star" goals.
+1.  **Reactive Agent**: Responds to messages, automatically managing tasks and manifesto updates using tools (`add_task`, `complete_task`, `set_manifesto`).
+2.  **Proactive Scheduler**: Runs every day at 08:00 UTC to send a "Kick in the ass" briefing based on your pending tasks and life goals.
+3.  **NoSQL Data Structure**: Flexible user documents in Firestore.
 
-## Tech Stack
+## Prerequisites
 
-- **Python 3.11+**
-- **FastAPI**: Webhook handling.
-- **Supabase**: PostgreSQL database for Users, Logs, and Tasks.
-- **Google Gemini Pro**: LLM for generating responses.
-- **APScheduler**: Background task scheduling.
-- **python-telegram-bot**: Telegram API wrapper.
+- Python 3.11+
+- Firebase CLI (`npm install -g firebase-tools`)
+- A Firebase Project (Blaze plan required for external network calls to Telegram/Gemini).
+- Telegram Bot Token.
+- Gemini API Key.
 
 ## Setup
 
-1.  **Clone the repository**
-2.  **Install dependencies**:
+1.  **Install Dependencies**:
     ```bash
     pip install -r requirements.txt
     ```
-3.  **Environment Variables**:
-    Copy `.env.example` to `.env` and fill in the values:
-    - `TELEGRAM_TOKEN`: From BotFather.
-    - `GEMINI_API_KEY`: From Google AI Studio.
-    - `SUPABASE_URL` & `SUPABASE_KEY`: From your Supabase project settings.
 
-4.  **Database Schema**:
-    Run the following SQL in your Supabase SQL Editor:
-
-    ```sql
-    -- Users Table
-    CREATE TABLE users (
-        id BIGINT PRIMARY KEY, -- Telegram User ID
-        username TEXT,
-        timezone TEXT DEFAULT 'UTC',
-        manifesto TEXT, -- The user's "North Star" goals
-        created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    -- Conversation History (for Context)
-    CREATE TABLE message_logs (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT REFERENCES users(id),
-        role TEXT CHECK (role IN ('user', 'assistant', 'system')),
-        content TEXT,
-        created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    -- Active Tasks (The "Open Loops")
-    CREATE TABLE tasks (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT REFERENCES users(id),
-        description TEXT,
-        status TEXT DEFAULT 'pending', -- pending, done, blocked
-        due_date TIMESTAMP,
-        created_at TIMESTAMP DEFAULT NOW()
-    );
+2.  **Environment Variables**:
+    Cloud Functions use `.env` or Secret Manager. For local testing, copy `.env.example`:
+    ```bash
+    cp .env.example .env
     ```
+    Fill in `TELEGRAM_TOKEN` and `GEMINI_API_KEY`.
+
+3.  **Firebase Init**:
+    If you haven't already:
+    ```bash
+    firebase login
+    firebase init functions
+    ```
+    (Select "Use existing project" and "Python").
 
 ## Deployment
 
-This project includes a `Procfile` for deployment on platforms like Render or Railway.
+1.  **Deploy Functions**:
+    ```bash
+    firebase deploy --only functions
+    ```
 
-1.  **Push to GitHub**.
-2.  **Connect to Render/Railway**.
-3.  **Set Environment Variables** in the dashboard.
-4.  **Deploy**.
-5.  **Set Webhook**:
-    Once deployed, set your Telegram bot webhook to your deployed URL:
-    `https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook?url=https://<YOUR_APP_URL>/webhook`
+2.  **Set Webhook**:
+    After deployment, get the URL for `telegram_webhook` from the console output.
+    Set the webhook:
+    ```bash
+    curl "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook?url=<YOUR_FUNCTION_URL>"
+    ```
 
-## Usage
+## Local Testing
 
-- Start chatting with the bot.
-- Tell it your "Manifesto" (e.g., "My goal is to launch my startup by Q4").
-- Add tasks naturally (e.g., "I need to email the investors").
-- The bot will remind you of your goals and tasks at 8 AM.
+You can simulate the functions locally using the Firebase Emulator or by running the python scripts directly if you mock the request objects.
+
+To test the agent logic directly:
+```python
+from agent import Agent
+a = Agent()
+print(a.generate_response_with_tools("123", "Add a task to buy milk"))
+```

@@ -1,84 +1,104 @@
 import os
-import asyncio
-from fastapi import FastAPI, Request
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from database import Database
-from llm_service import LLMService
-from scheduler import SchedulerService
-import uvicorn
-from contextlib import asynccontextmanager
+import json
+import logging
+from firebase_functions import https_fn, scheduler_fn
+from firebase_admin import initialize_app, firestore
+from telegram import Update, Bot
+from agent import Agent
+from tools import db # Import db from tools to ensure connection
 
-# Load environment variables (locally)
-from dotenv import load_dotenv
-load_dotenv()
+# Initialize Firebase App
+# It might have been initialized in tools.py, but safe to ensure it's up.
+try:
+    initialize_app()
+except ValueError:
+    pass
 
-# Initialize services
-db = Database()
-llm = LLMService(db)
-scheduler = SchedulerService(db, llm)
+# Initialize Logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    scheduler.start()
+# Initialize Agent
+agent = Agent()
 
-    # Initialize Telegram Webhook if needed here,
-    # but usually handled by external config or separate script.
-    # We will assume webhook is set manually or via a setup script.
+# Initialize Bot (Stateless for function)
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
 
-    yield
-    # Shutdown
-    # scheduler.shutdown()
-
-app = FastAPI(lifespan=lifespan)
-
-@app.get("/")
-def health_check():
-    return {"status": "ok", "db_connected": db.is_connected()}
-
-@app.post("/webhook")
-async def telegram_webhook(request: Request):
+@https_fn.on_request()
+def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     """
-    Handle incoming Telegram updates.
+    HTTP Cloud Function for Telegram Webhook.
     """
+    if req.method != "POST":
+        return https_fn.Response("Method not allowed", status=405)
+
     try:
-        data = await request.json()
-        update = Update.de_json(data, None) # We don't have the bot instance here easily attached to context unless we use Application
+        if not bot:
+            logger.error("Telegram token not set")
+            return https_fn.Response("Configuration Error", status=500)
 
-        # We need to process this update.
-        # Since we are using FastAPI as the webhook receiver, we can process manually or pass to PTB Application.
-        # Constructing a PTB Application just to process update might be heavy but is standard.
-        # Alternatively, simpler logic for just messages:
+        data = req.get_json()
+        update = Update.de_json(data, bot)
 
         if update.message and update.message.text:
-            chat_id = update.message.chat.id
+            chat_id = update.message.chat_id
             user_id = update.message.from_user.id
-            username = update.message.from_user.username or ""
             text = update.message.text
 
-            # 1. Upsert User
-            # Check if user exists first to avoid constant writes? Upsert is fine.
-            db.upsert_user(user_id, username)
+            # Process with Agent
+            # Using asyncio.run if needed, but python-telegram-bot v20+ is async.
+            # However, Cloud Functions 2nd gen handles async if we define the function as async,
+            # OR we can just use the synchronous methods if available (PTB is mostly async now).
+            # We will use `asyncio.run` inside the sync wrapper or switch to async function definition.
+            # firebase_functions supports async def.
 
-            # 2. Log User Message
-            db.log_message(user_id, 'user', text)
+            # Let's delegate to a helper logic that handles the async part
+            import asyncio
+            response_text = agent.generate_response_with_tools(str(user_id), text)
 
-            # 3. Generate Response
-            response_text = await llm.generate_response(user_id, text)
+            async def send_reply():
+                await bot.send_message(chat_id=chat_id, text=response_text)
 
-            # 4. Send Response (using direct HTTP or PTB Bot instance)
-            if scheduler.bot:
-                await scheduler.bot.send_message(chat_id=chat_id, text=response_text)
+            asyncio.run(send_reply())
 
-                # 5. Log Assistant Message
-                db.log_message(user_id, 'assistant', response_text)
+        return https_fn.Response("OK", status=200)
 
-        return {"status": "ok"}
     except Exception as e:
-        print(f"Error processing webhook: {e}")
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Error processing webhook: {e}")
+        return https_fn.Response(f"Error: {str(e)}", status=500)
 
-if __name__ == "__main__":
-    # For local testing
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+@scheduler_fn.on_schedule(schedule="every day 08:00")
+def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
+    """
+    Scheduled Cloud Function for Morning Push.
+    """
+    logger.info("Starting morning briefing...")
+    if not bot:
+        logger.error("Telegram token not set")
+        return
+
+    # 1. Fetch all users
+    users_ref = db.collection("users")
+    docs = users_ref.stream()
+
+    import asyncio
+
+    async def send_briefing(user_id, message):
+        try:
+            await bot.send_message(chat_id=user_id, text=message)
+        except Exception as e:
+            logger.error(f"Failed to send to {user_id}: {e}")
+
+    # Process each user
+    # Note: For large user bases, this should be fan-out (Pub/Sub), but for this scale, iteration is fine.
+    for doc in docs:
+        user_id = doc.id
+        # We could check timezone here if we stored it and wanted to be precise.
+        # For now, we assume global 08:00 UTC trigger as per requirements.
+
+        message = agent.generate_morning_briefing(user_id)
+        if message:
+            asyncio.run(send_briefing(user_id, message))
+
+    logger.info("Morning briefing complete.")
