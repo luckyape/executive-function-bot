@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+supabase
+google-generativeai
+python-telegram-bot
+apscheduler
+pydantic
+python-dotenv
+httpx
