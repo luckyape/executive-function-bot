@@ -1,6 +1,11 @@
 name: Deploy to Firebase
 
-on: [push, workflow_dispatch] # Runs on EVERY push to ANY branch
+on: [push, workflow_dispatch]
+
+# PERMISSIONS REQUIRED FOR OIDC (Keyless Auth)
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   deploy:
@@ -9,13 +14,22 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # AUTHENTICATE WITH GOOGLE (The new way)
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: '${{ secrets.GCP_WIF_PROVIDER }}'
+          service_account: '${{ secrets.GCP_SA_EMAIL }}'
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
       - name: Install Dependencies
-        run: pip install -r requirements.txt
+        run: |
+          if [ -f functions/requirements.txt ]; then pip install -r functions/requirements.txt; else pip install -r requirements.txt; fi
 
       - name: Deploy to Firebase
-        run: npx firebase-tools deploy --project 218883677076 --only functions --token "${{ secrets.FIREBASE_TOKEN }}" --force
+        # NOTICE: No --token flag here. It uses the active session from the step above.
+        run: npx firebase-tools deploy --project 218883677076 --only functions --force
