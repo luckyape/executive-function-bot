@@ -1,12 +1,14 @@
-import os
 import logging
+
 from google import genai
 from google.genai import types
 from google.api_core import exceptions
+
 from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
 from config import get_config
 
 logger = logging.getLogger(__name__)
+
 
 class Agent:
     def __init__(self):
@@ -31,7 +33,7 @@ class Agent:
             return self.client
 
         if not self.api_key:
-            # Try re-fetching in case env vars were late-loaded (unlikely in Lambda but safe)
+            # Try re-fetching in case env vars were late-loaded (unlikely in Cloud Run but safe)
             self.api_key = get_config("GEMINI_API_KEY")
 
         if not self.api_key:
@@ -41,7 +43,7 @@ class Agent:
         try:
             self.client = genai.Client(api_key=self.api_key)
         except Exception as e:
-            logger.error(f"Failed to initialize GenAI Client: {e}")
+            logger.error(f"Failed to initialize GenAI Client: {e}", exc_info=True)
             return None
 
         return self.client
@@ -54,12 +56,14 @@ class Agent:
         if not client:
             return "Error: LLM client not initialized (missing API Key?)."
 
-        # Define tools configuration
-        tools_config = [types.Tool(function_declarations=[
-            types.FunctionDeclaration(**td) for td in TOOL_DEFINITIONS
-        ])]
+        # Tool declarations (kept for future use / compatibility)
+        tools_config = [
+            types.Tool(
+                function_declarations=[types.FunctionDeclaration(**td) for td in TOOL_DEFINITIONS]
+            )
+        ]
 
-        # Re-import functions to pass them directly
+        # Re-import functions to pass them directly (current implementation)
         from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
         my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
 
@@ -67,10 +71,10 @@ class Agent:
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
-                    tools=my_tools,
+                    tools=my_tools,  # NOTE: if this ever breaks, switch to tools=tools_config
                     system_instruction=self.system_instruction,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False)
-                )
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
+                ),
             )
 
             response = chat.send_message(f"User ID: {user_id}\nMessage: {message_text}")
@@ -79,6 +83,12 @@ class Agent:
         except exceptions.ResourceExhausted as e:
             logger.warning(f"Gemini 429/ResourceExhausted: {e}")
             return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
+
+        except exceptions.GoogleAPICallError as e:
+            # This can contain sensitive info, so we log it carefully
+            logger.error(f"Gemini API Call Error: {e}", exc_info=True)
+            return "I hit a temporary issue talking to Gemini. Try again shortly (tasks still work)."
+
         except Exception as e:
             logger.error(f"Gemini General Exception: {e}", exc_info=True)
             return "I encountered a temporary issue with my brain. Please try again."
@@ -106,12 +116,14 @@ class Agent:
         try:
             response = client.models.generate_content(
                 model=self.model,
-                contents=prompt
+                contents=prompt,
             )
             return response.text
+
         except exceptions.ResourceExhausted as e:
             logger.warning(f"Morning Briefing Skipped (Rate Limit): {e}")
-            return None # Skip push if rate limited
+            return ""  # Skip push if rate limited
+
         except Exception as e:
             logger.error(f"Briefing Error: {e}", exc_info=True)
-            return None
+            return ""
