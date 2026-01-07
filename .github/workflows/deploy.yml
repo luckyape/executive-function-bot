@@ -24,10 +24,13 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Create venv and Install Dependencies
         run: |
+          cd functions
+          python -m venv venv
+          source venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r functions/requirements.txt
+          pip install -r requirements.txt
 
       - name: Deploy to Firebase
         run: npx firebase-tools deploy --project 218883677076 --only functions --force
