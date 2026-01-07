@@ -2,35 +2,32 @@ name: Deploy to Firebase
 
 on: [push, workflow_dispatch]
 
-permissions: 
-  contents:  read
+permissions:
+  contents: read
   id-token: write
 
-jobs: 
-  deploy:   
-    runs-on:  ubuntu-latest
-    steps: 
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name:  Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
-        with: 
+        with:
           workload_identity_provider: '${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}'
           service_account: '${{ secrets.SERVICE_ACCOUNT_EMAIL }}'
 
       - name: Setup Python
         uses: actions/setup-python@v4
-        with:   
-          python-version:  '3.11'
+        with:
+          python-version: '3.11'
 
-      - name: Install Dependencies and Deploy
+      - name: Install Dependencies
         run: |
-          cd functions
-          python -m venv venv
-          source venv/bin/activate
-          pip install -r requirements.txt
-          cd ..
-          npx firebase-tools deploy --project 218883677076 --only functions --force
-        env:
-          CLOUDSDK_PYTHON: ${{ github.workspace }}/functions/venv/bin/python
+          python -m pip install --upgrade pip
+          pip install -r functions/requirements.txt
+
+      - name: Deploy to Firebase
+        run: npx firebase-tools deploy --project 218883677076 --only functions --force
