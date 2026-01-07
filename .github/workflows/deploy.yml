@@ -1,9 +1,9 @@
 name: Deploy to Firebase
 
-on: [push, workflow_dispatch]
+on:  [push, workflow_dispatch]
 
 permissions: 
-  contents: read
+  contents:  read
   id-token:  write
 
 jobs: 
@@ -24,14 +24,11 @@ jobs:
         with: 
           python-version: '3.11'
 
-      - name: Setup Functions Environment
+      - name: Setup and Deploy
         run: |
           cd functions
           python -m venv venv
           source venv/bin/activate
-          pip install --upgrade pip
           pip install -r requirements.txt
-          pip list | grep firebase-functions  # Verify installation
-
-      - name: Deploy to Firebase
-        run: npx firebase-tools deploy --project 218883677076 --only functions --force
+          cd ..
+          npx firebase-tools deploy --project 218883677076 --only functions --force
