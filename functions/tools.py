@@ -49,7 +49,13 @@ def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
     user_ref = db.collection("users").document(str(user_id))
     tasks_ref = user_ref.collection("tasks")
 
-    # Query pending tasks, ordering by creation date for consistent numbering
+    # Query pending tasks, ordering by creation date for consistent numbering.
+    # NOTE: This is a compound query (filter by "status", order by "created_at").
+    # Firestore requires a composite index for this to work without a runtime error.
+    # Ensure an index exists for the tasks subcollection with:
+    #   status  (==)        and
+    #   created_at (ascending)
+    # under users/{userId}/tasks in the Firestore index configuration.
     query = tasks_ref.where(
         filter=FieldFilter("status", "==", "pending")
     ).order_by("created_at").stream()
