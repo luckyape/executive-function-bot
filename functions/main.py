@@ -92,7 +92,8 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
                             body_preview += "..."
                     else:
                         body_preview = "<non-bytes data>"
-            except (AttributeError, TypeError):
+            except (AttributeError, TypeError) as ex:
+                logger.debug(f"Error accessing request body: {type(ex).__name__}: {ex}")
                 body_preview = "<unavailable>"
             logger.error(f"Failed to decode JSON: {e} - Body preview (first {BODY_PREVIEW_MAX_LENGTH} chars): {body_preview}")
             return https_fn.Response("ok", status=200) # Must return 200 to Telegram
