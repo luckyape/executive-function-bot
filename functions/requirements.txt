@@ -1,5 +1,6 @@
 firebase-admin
 firebase-functions
 google-genai
-python-telegram-bot
+python-telegram-bot==20.7
 python-dotenv
+requests
