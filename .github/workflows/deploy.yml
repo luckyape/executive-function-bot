@@ -45,5 +45,5 @@ jobs:
         run: |
           gcloud run services update telegram-webhook \
             --region us-central1 \
-            --project executive-function-coaching \
+            --project 218883677076 \
             --update-secrets TELEGRAM_TOKEN=TELEGRAM_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest
