@@ -2,16 +2,20 @@ import os
 import json
 import logging
 import asyncio
+import json_logging
 from firebase_functions import https_fn, scheduler_fn
 from telegram import Update, Bot
 from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
 from telegram import send_message_safe
+from exceptions import TelegramWebhookError
 
 # Initialize Logger
-logging.basicConfig(level=logging.INFO)
+json_logging.init_non_web(enable_json=True)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
 
 # Initialize Agent
 agent = Agent()
@@ -45,11 +49,15 @@ async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot):
         if not tasks:
             await send_message_safe(bot, chat_id, "[SAFE MODE] No pending tasks.")
         else:
-            msg = "\n".join([f"- {t['description']}" for t in tasks])
+            # Format with index
+            msg = "\n".join([f"#{t['index']} - {t['description']}" for t in tasks])
             await send_message_safe(bot, chat_id, f"[SAFE MODE] Tasks:\n{msg}")
-    elif text_lower.startswith("done "):
-        frag = text[5:].strip()
-        res = complete_task(str(user_id), frag)
+    elif text_lower.startswith("done"):
+        # Pass the whole fragment, e.g., "done #1" -> "#1"
+        # "done" -> ""
+        # "done task" -> "task"
+        query = text[4:].strip()
+        res = complete_task(str(user_id), query)
         await send_message_safe(bot, chat_id, f"[SAFE MODE] {res}")
     else:
         await send_message_safe(bot, chat_id, f"[SAFE MODE] Unknown command. Available: add <task>, list, done <fragment>.")
@@ -59,75 +67,89 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     """
     HTTP Cloud Function for Telegram Webhook.
     """
-    # Global Try/Except to prevent 500s
+    data = {}
     try:
         # 1. Health Check
         if req.method == "GET" or req.args.get("ping"):
             return https_fn.Response("ok", status=200)
 
         if req.method != "POST":
-            return https_fn.Response("Method not allowed", status=405)
+            raise TelegramWebhookError("Invalid request method", status_code=405)
 
         # 2. Config Validation
         if not bot:
-            logger.error("Telegram token not set")
-            return https_fn.Response("Configuration Error", status=200)
+            logger.error("TELEGRAM_TOKEN is not set.")
+            # Still return 200 to Telegram, but log the error.
+            raise TelegramWebhookError("Application not configured.")
 
         # 3. Parse Update
         try:
             data = req.get_json()
             update = Update.de_json(data, bot)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON: {e} - Raw request body: {req.data}")
-            return https_fn.Response("ok", status=200) # Must return 200 to Telegram
+            # Never raise here; Telegram retries on non-200.
+            # Also do NOT log raw request body (can contain user content / sensitive info).
+            logger.warning(f"Invalid JSON received: {e}")
+            return https_fn.Response("ok", status=200)
+
         except Exception as e:
-            logger.error(f"Failed to parse update: {e}")
+            # Any parsing failure should still return 200 to avoid Telegram retry storms.
+            logger.exception(f"Failed to parse Telegram update: {e}")
             return https_fn.Response("ok", status=200)
 
-        if not update:
+        if not update or not getattr(update, "message", None):
+            return https_fn.Response("ok", status=200)
             return https_fn.Response("ok", status=200)
 
-        # 4. Handle Message
-        # Handle text messages
-        if update.message:
-             # Handle new user /start
-            if update.message.text == "/start":
-                 asyncio.run(send_message_safe(bot, update.message.chat_id, "Welcome! Tell me your Manifesto (Goal)."))
-                 return https_fn.Response("ok", status=200)
+        # From here, we can rely on the TelegramWebhookError handler.
+        if not update.message.text:
+             return https_fn.Response("ok", status=200)
 
-            if update.message.text:
-                chat_id = update.message.chat_id
-                user_id = update.message.from_user.id
-                text = update.message.text
+        chat_id = update.message.chat_id
+        user_id = update.message.from_user.id
+        text = update.message.text
 
-                # Check Safe Mode
-                if is_safe_mode():
-                    asyncio.run(handle_safe_mode(user_id, chat_id, text, bot))
-                    return https_fn.Response("ok", status=200)
+        # 4. Handle different message types
+        if text == "/start":
+            asyncio.run(send_message_safe(bot, chat_id, "Welcome! Tell me your Manifesto (Goal)."))
+            return https_fn.Response("ok", status=200)
 
-                # Process with Agent
-                try:
-                    # TODO: Implement timeout logic if needed, but Cloud Functions has its own timeout.
-                    response_text = agent.generate_response_with_tools(str(user_id), text)
-                    asyncio.run(send_message_safe(bot, chat_id, response_text))
-                except Exception as e:
-                    logger.error(f"Agent Error: {e}")
-                    asyncio.run(send_message_safe(bot, chat_id, "I encountered an internal error."))
-
-            # Handle Captions (for photos/docs with text)
-            elif update.message.caption:
-                 # Treat caption as text?
-                 pass
-
-        # Handle Edited Messages
-        elif update.edited_message:
-            # Optionally handle
-            pass
+        if is_safe_mode():
+            asyncio.run(handle_safe_mode(user_id, chat_id, text, bot))
+        else:
+            try:
+                response_text = agent.generate_response_with_tools(str(user_id), text)
+                asyncio.run(send_message_safe(bot, chat_id, response_text))
+            except Exception as e:
+                logger.error(f"Agent Error: {e}", exc_info=True)
+                raise TelegramWebhookError("Agent failed to generate response.")
 
         return https_fn.Response("ok", status=200)
 
+    except TelegramWebhookError as e:
+        # Log the detailed error but send a generic message to the user.
+        logger.error(f"Caught Telegram Webhook Error: {e}", exc_info=True)
+        # Attempt to get chat_id from the request to notify the user.
+        try:
+            chat_id = data.get("message", {}).get("chat", {}).get("id")
+            if bot and chat_id:
+                asyncio.run(send_message_safe(bot, chat_id, "I encountered an internal error."))
+        except Exception as notify_e:
+            logger.error(f"Could not notify user of error: {notify_e}")
+
+        # Always return a 200 to Telegram to prevent re-sends.
+        return https_fn.Response("ok", status=200)
+
     except Exception as e:
-        logger.exception(f"Unhandled error in webhook: {e}")
+        logger.error(f"Unhandled Exception: {e}", exc_info=True)
+        # Attempt to notify user as a last resort
+        try:
+            chat_id = data.get("message", {}).get("chat", {}).get("id")
+            if bot and chat_id:
+                asyncio.run(send_message_safe(bot, chat_id, "A critical error occurred."))
+        except Exception as notify_e:
+            logger.error(f"Could not notify user of critical error: {notify_e}")
+
         return https_fn.Response("ok", status=200)
 
 @scheduler_fn.on_schedule(schedule="every day 08:00")
