@@ -81,17 +81,21 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             data = req.get_json()
             update = Update.de_json(data, bot)
         except json.JSONDecodeError as e:
-            raw_body = getattr(req, "data", None)
             body_preview = "<no data>"
-            if raw_body is not None:
-                try:
+            try:
+                raw_body = req.get_data()
+                if raw_body:
                     if isinstance(raw_body, (bytes, bytearray)):
-                        body_str = raw_body.decode("utf-8")
+                        body_str = raw_body.decode("utf-8", errors="replace")
                     else:
                         body_str = repr(raw_body)
-                    body_preview = body_str[:BODY_PREVIEW_MAX_LENGTH]
-                except (UnicodeDecodeError, AttributeError, TypeError):
-                    body_preview = "<unavailable>"
+                    
+                    if len(body_str) > BODY_PREVIEW_MAX_LENGTH:
+                        body_preview = body_str[:BODY_PREVIEW_MAX_LENGTH] + "..."
+                    else:
+                        body_preview = body_str
+            except (UnicodeDecodeError, AttributeError, TypeError):
+                body_preview = "<unavailable>"
             logger.error(f"Failed to decode JSON: {e} - Body preview (first {BODY_PREVIEW_MAX_LENGTH} chars): {body_preview}")
             return https_fn.Response("ok", status=200) # Must return 200 to Telegram
         except Exception as e:
