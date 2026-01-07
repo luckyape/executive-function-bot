@@ -49,13 +49,7 @@ def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
     user_ref = db.collection("users").document(str(user_id))
     tasks_ref = user_ref.collection("tasks")
 
-    # Query pending tasks, ordering by creation date for consistent numbering.
-    # NOTE: This is a compound query (filter by "status", order by "created_at").
-    # Firestore requires a composite index for this to work without a runtime error.
-    # Ensure an index exists for the tasks subcollection with:
-    #   status  (==)        and
-    #   created_at (ascending)
-    # under users/{userId}/tasks in the Firestore index configuration.
+    # Query pending tasks, ordering by creation date for consistent numbering
     query = tasks_ref.where(
         filter=FieldFilter("status", "==", "pending")
     ).order_by("created_at").stream()
@@ -87,22 +81,10 @@ def complete_task(user_id: str, query: str) -> str:
     user_ref = db.collection("users").document(str(user_id))
     tasks_ref = user_ref.collection("tasks")
 
-    # Query pending tasks directly here instead of calling get_pending_tasks
-    # to avoid updating any cached "last_listed_tasks" used for numeric indices.
-    pending_tasks_query = tasks_ref.where(
-        filter=FieldFilter("status", "==", "pending")
-    ).order_by("created_at")
+    pending_tasks = get_pending_tasks(user_id) # This already orders them
 
-    pending_tasks = []
-    for idx, doc in enumerate(pending_tasks_query.stream(), start=1):
-        data = doc.to_dict() or {}
-        pending_tasks.append({
-            "id": doc.id,
-            "description": data.get("description", ""),
-            "index": idx,
-        })
     # Case 1: "done" or "mark my one task done" with a single pending task
-    if not query or query.lower() == "mark my one task done":
+    if not query or query.lower() in ["done", "mark my one task done"]:
         if len(pending_tasks) == 1:
             task_to_complete = pending_tasks[0]
             tasks_ref.document(task_to_complete["id"]).update({"status": "done"})
