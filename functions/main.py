@@ -1,4 +1,3 @@
-import json
 import logging
 import asyncio
 
@@ -8,54 +7,73 @@ from telegram import Update, Bot
 from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
-from telegram_utils import send_message_safe  # IMPORTANT: local helper, not telegram package
-from exceptions import TelegramWebhookError
+from telegram_utils import send_message_safe  # local helper (NOT the telegram package)
 
-# Initialize Logger
+# Logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Agent
+# Agent
 agent = Agent()
 
-# Initialize Bot
+# Config (token may arrive via env/secrets)
 TELEGRAM_TOKEN = get_config("TELEGRAM_TOKEN")
-bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
 
 
-async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot, from_fallback: bool = False):
+def _send(chat_id: int, text: str) -> None:
     """
-    Deterministic logic for Safe Mode (No LLM).
+    Send a Telegram message safely.
+    Works whether send_message_safe is sync or async.
+    Avoids keeping a global Bot tied to a closed event loop.
+    """
+    if not TELEGRAM_TOKEN:
+        logger.error("Config key 'TELEGRAM_TOKEN' not found in environment variables.")
+        return
+
+    bot = Bot(token=TELEGRAM_TOKEN)
+    try:
+        result = send_message_safe(bot, chat_id, text)
+        if asyncio.iscoroutine(result):
+            asyncio.run(result)
+    except RuntimeError as e:
+        # Best-effort guard; don't crash webhook
+        logger.error(f"Failed to send message (RuntimeError): {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Failed to send message: {e}", exc_info=True)
+
+
+def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool = False) -> None:
+    """
+    Deterministic logic for Safe Mode (no LLM calls).
     """
     from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
 
     if from_fallback:
-        await send_message_safe(
-            bot,
+        _send(
             chat_id,
             "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.",
         )
 
-    text_lower = text.lower().strip()
+    text_lower = (text or "").lower().strip()
 
-    # 1) Check Manifesto
+    # 1) Manifesto bootstrap
     manifesto = get_manifesto(str(user_id))
     if manifesto == "No manifesto set.":
         set_manifesto(str(user_id), text)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] Manifesto set: {text}")
+        _send(chat_id, f"[SAFE MODE] Manifesto set: {text}")
         return
 
     # 2) Commands
     if text_lower.startswith("add "):
         task = text[4:].strip()
         add_task(str(user_id), task)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] Task added: {task}")
+        _send(chat_id, f"[SAFE MODE] Task added: {task}")
         return
 
     if text_lower in ("list", "/list"):
         tasks = get_pending_tasks(str(user_id))
         if not tasks:
-            await send_message_safe(bot, chat_id, "[SAFE MODE] No pending tasks.")
+            _send(chat_id, "[SAFE MODE] No pending tasks.")
             return
 
         lines = []
@@ -67,47 +85,46 @@ async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot, from
             else:
                 lines.append(f"- {desc}")
 
-        await send_message_safe(bot, chat_id, "[SAFE MODE] Tasks:\n" + "\n".join(lines))
+        _send(chat_id, "[SAFE MODE] Tasks:\n" + "\n".join(lines))
         return
 
     if text_lower.startswith("done"):
         # supports: "done", "done #1", "done pay rent"
         query = text[4:].strip()
         res = complete_task(str(user_id), query)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] {res}")
+        _send(chat_id, f"[SAFE MODE] {res}")
         return
 
-    await send_message_safe(bot, chat_id, "[SAFE MODE] Unknown command. Try: add <task>, list, done <fragment>.")
+    _send(chat_id, "[SAFE MODE] Unknown command. Try: add <task>, list, done <fragment>.")
 
 
 @https_fn.on_request()
 def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     """
     HTTP Cloud Function for Telegram Webhook.
-    Always returns 200 OK to Telegram to prevent retry storms.
+    MUST always return 200 OK to Telegram to prevent retry storms.
     """
     data = {}
-    update = None
-
     try:
         # 1) Health check
         if req.method == "GET" or req.args.get("ping"):
             return https_fn.Response("ok", status=200)
 
-        # 2) Telegram sends POST. For anything else: return 200 to avoid noise.
+        # 2) Telegram sends POST; for anything else, quietly 200.
         if req.method != "POST":
-            logger.warning("Non-POST request to webhook", extra={"props": {"method": req.method}})
+            logger.warning(f"Non-POST request to webhook: {req.method}")
             return https_fn.Response("ok", status=200)
 
         # 3) Config validation
-        if not bot:
-            logger.error("Config key 'TELEGRAM_TOKEN' not found in environment variables. Bot not initialized.")
+        if not TELEGRAM_TOKEN:
+            logger.error("Config key 'TELEGRAM_TOKEN' not found in environment variables.")
             return https_fn.Response("ok", status=200)
 
         # 4) Parse update (never raise; never log raw body)
         try:
             data = req.get_json(silent=True) or {}
-            update = Update.de_json(data, bot)
+            bot_for_parse = Bot(token=TELEGRAM_TOKEN)
+            update = Update.de_json(data, bot_for_parse)
         except Exception as e:
             logger.warning(f"Failed to parse Telegram update JSON: {e}", exc_info=True)
             return https_fn.Response("ok", status=200)
@@ -120,49 +137,78 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         user_id = update.message.from_user.id
         text = update.message.text
 
-        # 5) Basic commands
+        # 5) /start
         if text == "/start":
-            asyncio.run(send_message_safe(bot, chat_id, "Welcome! Tell me your Manifesto (Goal)."))
+            _send(chat_id, "Welcome! Tell me your Manifesto (Goal).")
             return https_fn.Response("ok", status=200)
 
-        # 6) Safe mode: deterministic handling only (no LLM calls)
+        # 6) Safe mode forced
         if is_safe_mode():
-            asyncio.run(handle_safe_mode(user_id, chat_id, text, bot))
+            handle_safe_mode(user_id, chat_id, text)
             return https_fn.Response("ok", status=200)
 
-        # 7) Normal mode: agent
+        # 7) Normal mode: agent (agent handles Gemini errors by returning a safe message)
         try:
             response_text = agent.generate_response_with_tools(str(user_id), text)
         except Exception as e:
             logger.error(f"Agent error: {e}", exc_info=True)
-            asyncio.run(handle_safe_mode(user_id, chat_id, text, bot, from_fallback=True))
+            handle_safe_mode(user_id, chat_id, text, from_fallback=True)
             return https_fn.Response("ok", status=200)
 
-        # 8) Rate-limit fallback: if agent returns the known rate-limit string, switch to safe mode for this request
+        # 8) Rate-limit fallback (string contract)
         if isinstance(response_text, str) and response_text.startswith("LLM is rate-limited"):
-            asyncio.run(handle_safe_mode(user_id, chat_id, text, bot, from_fallback=True))
+            handle_safe_mode(user_id, chat_id, text, from_fallback=True)
             return https_fn.Response("ok", status=200)
 
-        asyncio.run(send_message_safe(bot, chat_id, response_text))
-        return https_fn.Response("ok", status=200)
-
-    except TelegramWebhookError as e:
-        logger.error(f"Caught TelegramWebhookError: {e}", exc_info=True)
-        try:
-            chat_id = (data.get("message", {}).get("chat", {}) or {}).get("id")
-            if bot and chat_id:
-                asyncio.run(send_message_safe(bot, chat_id, "I hit an internal error, but I'm still alive. Try again."))
-        except Exception:
-            logger.error("Failed to notify user after TelegramWebhookError", exc_info=True)
+        _send(chat_id, response_text)
         return https_fn.Response("ok", status=200)
 
     except Exception as e:
         logger.error(f"Unhandled error in webhook: {e}", exc_info=True)
+        # Best-effort notify user (if we can recover chat_id)
         try:
             chat_id = (data.get("message", {}).get("chat", {}) or {}).get("id")
-            if bot and chat_id:
-                asyncio.run(send_message_safe(bot, chat_id, "A critical error occurred."))
+            if chat_id:
+                _send(chat_id, "A critical error occurred.")
         except Exception:
             logger.error("Failed to notify user after unhandled error", exc_info=True)
 
         return https_fn.Response("ok", status=200)
+
+
+@scheduler_fn.on_schedule(schedule="every day 08:00")
+def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
+    """
+    Scheduled Cloud Function for Morning Push.
+    """
+    logger.info("Starting morning briefing...")
+
+    if not TELEGRAM_TOKEN:
+        logger.error("Config key 'TELEGRAM_TOKEN' not found in environment variables.")
+        return
+
+    try:
+        db = get_db()
+        users_ref = db.collection("users")
+        docs = users_ref.stream()
+
+        count = 0
+        for doc in docs:
+            user_id = doc.id
+
+            # If safe mode is on, skip pushes
+            if is_safe_mode():
+                continue
+
+            try:
+                message = agent.generate_morning_briefing(user_id)
+                if message:
+                    _send(int(user_id), message)
+                    count += 1
+            except Exception as e:
+                logger.error(f"Error generating briefing for {user_id}: {e}", exc_info=True)
+
+        logger.info(f"Morning briefing complete. Sent to {count} users.")
+
+    except Exception as e:
+        logger.error(f"Morning briefing failed: {e}", exc_info=True)
