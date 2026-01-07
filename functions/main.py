@@ -45,13 +45,21 @@ def _send(chat_id: int, text: str) -> None:
 def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool = False) -> None:
     """
     Deterministic logic for Safe Mode (no LLM calls).
+
+    Args:
+        user_id: The user's ID.
+        chat_id: The chat ID to which responses should be sent.
+        text: The user's message text.
+        from_fallback: If True, sends a notification that the bot has switched to Safe Mode,
+            for example due to rate limiting or other issues with the primary AI mode.
     """
     from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
 
     if from_fallback:
         _send(
             chat_id,
-            "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.",
+            "I'm temporarily using simplified processing due to high AI demand. "
+            "You can still use Safe Mode commands: add <task>, list, done <fragment>.",
         )
 
     text_lower = (text or "").lower().strip()
