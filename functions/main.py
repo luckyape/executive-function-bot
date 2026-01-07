@@ -1,4 +1,84 @@
-from telegram_utils import send_message_safe  # IMPORTANT: use local helper, not telegram package
+import json
+import logging
+import asyncio
+
+from firebase_functions import https_fn, scheduler_fn
+from telegram import Update, Bot
+
+from agent import Agent
+from firestore_client import get_db
+from config import get_config, is_safe_mode
+from telegram_utils import send_message_safe  # IMPORTANT: local helper, not telegram package
+from exceptions import TelegramWebhookError
+
+# Initialize Logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize Agent
+agent = Agent()
+
+# Initialize Bot
+TELEGRAM_TOKEN = get_config("TELEGRAM_TOKEN")
+bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
+
+
+async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot, from_fallback: bool = False):
+    """
+    Deterministic logic for Safe Mode (No LLM).
+    """
+    from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+
+    if from_fallback:
+        await send_message_safe(
+            bot,
+            chat_id,
+            "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.",
+        )
+
+    text_lower = text.lower().strip()
+
+    # 1) Check Manifesto
+    manifesto = get_manifesto(str(user_id))
+    if manifesto == "No manifesto set.":
+        set_manifesto(str(user_id), text)
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] Manifesto set: {text}")
+        return
+
+    # 2) Commands
+    if text_lower.startswith("add "):
+        task = text[4:].strip()
+        add_task(str(user_id), task)
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] Task added: {task}")
+        return
+
+    if text_lower in ("list", "/list"):
+        tasks = get_pending_tasks(str(user_id))
+        if not tasks:
+            await send_message_safe(bot, chat_id, "[SAFE MODE] No pending tasks.")
+            return
+
+        lines = []
+        for t in tasks:
+            idx = t.get("index")
+            desc = t.get("description", "")
+            if idx is not None:
+                lines.append(f"#{idx} - {desc}")
+            else:
+                lines.append(f"- {desc}")
+
+        await send_message_safe(bot, chat_id, "[SAFE MODE] Tasks:\n" + "\n".join(lines))
+        return
+
+    if text_lower.startswith("done"):
+        # supports: "done", "done #1", "done pay rent"
+        query = text[4:].strip()
+        res = complete_task(str(user_id), query)
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] {res}")
+        return
+
+    await send_message_safe(bot, chat_id, "[SAFE MODE] Unknown command. Try: add <task>, list, done <fragment>.")
+
 
 @https_fn.on_request()
 def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
@@ -55,15 +135,18 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             response_text = agent.generate_response_with_tools(str(user_id), text)
         except Exception as e:
             logger.error(f"Agent error: {e}", exc_info=True)
-            # Do not leak details to user
-            asyncio.run(send_message_safe(bot, chat_id, "LLM is unavailable right now. I can still manage tasks."))
+            asyncio.run(handle_safe_mode(user_id, chat_id, text, bot, from_fallback=True))
+            return https_fn.Response("ok", status=200)
+
+        # 8) Rate-limit fallback: if agent returns the known rate-limit string, switch to safe mode for this request
+        if isinstance(response_text, str) and response_text.startswith("LLM is rate-limited"):
+            asyncio.run(handle_safe_mode(user_id, chat_id, text, bot, from_fallback=True))
             return https_fn.Response("ok", status=200)
 
         asyncio.run(send_message_safe(bot, chat_id, response_text))
         return https_fn.Response("ok", status=200)
 
     except TelegramWebhookError as e:
-        # Keep as a control-flow/error classification hook; still return 200.
         logger.error(f"Caught TelegramWebhookError: {e}", exc_info=True)
         try:
             chat_id = (data.get("message", {}).get("chat", {}) or {}).get("id")
@@ -76,7 +159,6 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     except Exception as e:
         logger.error(f"Unhandled error in webhook: {e}", exc_info=True)
         try:
-            # best-effort notify
             chat_id = (data.get("message", {}).get("chat", {}) or {}).get("id")
             if bot and chat_id:
                 asyncio.run(send_message_safe(bot, chat_id, "A critical error occurred."))
