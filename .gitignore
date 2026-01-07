@@ -36,3 +36,6 @@ env/
 
 # Firebase
 .firebase/
+
+# Explicit: Functions build artifacts
+functions/**/__pycache__/

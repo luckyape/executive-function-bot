@@ -59,7 +59,7 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool 
         _send(
             chat_id,
             "I'm temporarily using simplified processing due to high AI demand. "
-            "You can still use Safe Mode commands: 'add', 'list', or 'done' tasks.",
+            "You can still use Safe Mode commands: add <task>, list, done <fragment>.",
         )
 
     text_lower = (text or "").lower().strip()
