@@ -7,11 +7,14 @@ from telegram import Update, Bot
 from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
-from telegram import send_message_safe
+from telegram_utils import send_message_safe
 
 # Initialize Logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Constants
+BODY_PREVIEW_MAX_LENGTH = 100
 
 # Initialize Agent
 agent = Agent()
@@ -78,7 +81,21 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             data = req.get_json()
             update = Update.de_json(data, bot)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON: {e} - Raw request body: {req.data}")
+            body_preview = "<no data>"
+            try:
+                raw_body = req.get_data()
+                if raw_body:
+                    if isinstance(raw_body, (bytes, bytearray)):
+                        body_str = raw_body.decode("utf-8", errors="replace")
+                        body_preview = body_str[:BODY_PREVIEW_MAX_LENGTH]
+                        if len(body_str) > BODY_PREVIEW_MAX_LENGTH:
+                            body_preview += "..."
+                    else:
+                        body_preview = "<non-bytes data>"
+            except (AttributeError, TypeError) as ex:
+                logger.debug(f"Error accessing request body: {type(ex).__name__}: {ex}")
+                body_preview = "<unavailable>"
+            logger.error(f"Failed to decode JSON: {e} - Body preview (first {BODY_PREVIEW_MAX_LENGTH} chars): {body_preview}")
             return https_fn.Response("ok", status=200) # Must return 200 to Telegram
         except Exception as e:
             logger.error(f"Failed to parse update: {e}")
