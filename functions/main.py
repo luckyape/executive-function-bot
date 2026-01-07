@@ -77,6 +77,9 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         try:
             data = req.get_json()
             update = Update.de_json(data, bot)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode JSON: {e} - Raw request body: {req.data}")
+            return https_fn.Response("ok", status=200) # Must return 200 to Telegram
         except Exception as e:
             logger.error(f"Failed to parse update: {e}")
             return https_fn.Response("ok", status=200)
