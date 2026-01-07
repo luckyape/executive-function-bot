@@ -77,8 +77,9 @@ class Agent:
             return response.text
 
         except exceptions.ResourceExhausted as e:
-            logger.warning(f"Gemini 429/ResourceExhausted: {e}")
-            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
+            logger.warning(f"Gemini 429/ResourceExhausted: {e}. Entering SAFE MODE.")
+            os.environ["APP_SAFE_MODE"] = "true"
+            return "I'm experiencing high demand and have switched to a simplified mode. You can still add, list, and complete tasks. Full functionality will be restored shortly."
         except Exception as e:
             logger.error(f"Gemini General Exception: {e}", exc_info=True)
             return "I encountered a temporary issue with my brain. Please try again."

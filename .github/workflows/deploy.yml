@@ -36,7 +36,15 @@ jobs:
 
           cd ..
           # Use npx -y to auto-accept install, ensure latest version
-          npx -y firebase-tools@latest deploy --project 218883677076 --only functions --force
+          npx -y firebase-tools@latest deploy --project ${{ secrets.GCP_PROJECT_ID }} --only functions --force
         env:
           # Explicitly tell gcloud/firebase which python to use if it tries to be smart
           CLOUDSDK_PYTHON: ${{ github.workspace }}/functions/venv/bin/python
+
+      - name: Rebind Secrets to Cloud Run
+        run: |
+          # Firebase Deploy (Gen2) wipes out existing secret bindings, so we re-apply them.
+          gcloud run services update telegram-webhook \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --region ${{ secrets.GCP_REGION }} \
+            --update-secrets=TELEGRAM_TOKEN=telegram-token:latest,GEMINI_API_KEY=gemini-api-key:latest

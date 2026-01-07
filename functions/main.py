@@ -23,36 +23,45 @@ bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
 async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot):
     """
     Deterministic logic for Safe Mode (No LLM).
+    Handles core commands directly without NLP/LLM.
     """
     from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
 
-    text_lower = text.lower().strip()
-
-    # 1. Check Manifesto
+    # 1. Check Manifesto - if not set, any message becomes the manifesto.
     manifesto = get_manifesto(str(user_id))
     if manifesto == "No manifesto set.":
         set_manifesto(str(user_id), text)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] Manifesto set: {text}")
+        await send_message_safe(bot, chat_id, f"Manifesto set: {text}\n\nI am currently in a simplified mode. I can help you add, list, and complete tasks. Full functionality will be restored shortly.")
         return
 
-    # 2. Commands
-    if text_lower.startswith("add "):
-        task = text[4:].strip()
-        add_task(str(user_id), task)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] Task added: {task}")
-    elif text_lower == "list" or text_lower == "/list":
+    # 2. Command Parsing
+    parts = text.strip().lower().split(maxsplit=1)
+    command = parts[0] if parts else ""
+    args = parts[1] if len(parts) > 1 else ""
+
+    if command in ["add", "/add"]:
+        if not args:
+            await send_message_safe(bot, chat_id, "[SAFE MODE] Please provide a task description. Usage: add <task>")
+            return
+        response = add_task(str(user_id), args) # Use original casing for task
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] {response}")
+
+    elif command in ["list", "/list"]:
         tasks = get_pending_tasks(str(user_id))
         if not tasks:
             await send_message_safe(bot, chat_id, "[SAFE MODE] No pending tasks.")
         else:
-            msg = "\n".join([f"- {t['description']}" for t in tasks])
+            # Format with index
+            msg = "\n".join([f"#{i+1}: {t['description']}" for i, t in enumerate(tasks)])
             await send_message_safe(bot, chat_id, f"[SAFE MODE] Tasks:\n{msg}")
-    elif text_lower.startswith("done "):
-        frag = text[5:].strip()
-        res = complete_task(str(user_id), frag)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] {res}")
+
+    elif command in ["done", "/done"]:
+        response = complete_task(str(user_id), args) # complete_task handles empty args
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] {response}")
+
     else:
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] Unknown command. Available: add <task>, list, done <fragment>.")
+        # Fallback for non-commands in safe mode
+        await send_message_safe(bot, chat_id, "[SAFE MODE] I can only `add`, `list`, or `done` tasks right now.")
 
 @https_fn.on_request()
 def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
