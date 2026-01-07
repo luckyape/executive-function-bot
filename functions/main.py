@@ -1,158 +1,86 @@
-import os
-import json
-import logging
-import asyncio
-import json_logging
-from firebase_functions import https_fn, scheduler_fn
-from telegram import Update, Bot
-from agent import Agent
-from firestore_client import get_db
-from config import get_config, is_safe_mode
-from telegram import send_message_safe
-
-# Initialize Logger
-json_logging.init_non_web(enable_json=True)
-logger = logging.getLogger(__name__)
-
-# Initialize Agent
-agent = Agent()
-
-# Initialize Bot
-TELEGRAM_TOKEN = get_config("TELEGRAM_TOKEN")
-bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
-
-async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot):
-    """
-    Deterministic logic for Safe Mode (No LLM).
-    """
-    from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
-
-    text_lower = text.lower().strip()
-
-    # 1. Check Manifesto
-    manifesto = get_manifesto(str(user_id))
-    if manifesto == "No manifesto set.":
-        set_manifesto(str(user_id), text)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] Manifesto set: {text}")
-        return
-
-    # 2. Commands
-    if text_lower.startswith("add "):
-        task = text[4:].strip()
-        add_task(str(user_id), task)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] Task added: {task}")
-    elif text_lower == "list" or text_lower == "/list":
-        tasks = get_pending_tasks(str(user_id))
-        if not tasks:
-            await send_message_safe(bot, chat_id, "[SAFE MODE] No pending tasks.")
-        else:
-            msg = "\n".join([f"- {t['description']}" for t in tasks])
-            await send_message_safe(bot, chat_id, f"[SAFE MODE] Tasks:\n{msg}")
-    elif text_lower.startswith("done "):
-        frag = text[5:].strip()
-        res = complete_task(str(user_id), frag)
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] {res}")
-    else:
-        await send_message_safe(bot, chat_id, f"[SAFE MODE] Unknown command. Available: add <task>, list, done <fragment>.")
+from telegram_utils import send_message_safe  # IMPORTANT: use local helper, not telegram package
 
 @https_fn.on_request()
 def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     """
     HTTP Cloud Function for Telegram Webhook.
-    Wraps all logic in a global try/except to ensure we always return a 200 OK
-    to Telegram and log any unhandled exceptions.
+    Always returns 200 OK to Telegram to prevent retry storms.
     """
+    data = {}
     update = None
+
     try:
-        # 1. Health Check
+        # 1) Health check
         if req.method == "GET" or req.args.get("ping"):
             return https_fn.Response("ok", status=200)
 
+        # 2) Telegram sends POST. For anything else: return 200 to avoid noise.
         if req.method != "POST":
-            logger.warning("Method not allowed", extra={'props': {'method': req.method}})
-            return https_fn.Response("Method not allowed", status=405)
+            logger.warning("Non-POST request to webhook", extra={"props": {"method": req.method}})
+            return https_fn.Response("ok", status=200)
 
-        # 2. Config Validation
+        # 3) Config validation
         if not bot:
-            logger.error("TELEGRAM_TOKEN is not set. Bot is not initialized.")
-            return https_fn.Response("Configuration Error", status=200)
+            logger.error("Config key 'TELEGRAM_TOKEN' not found in environment variables. Bot not initialized.")
+            return https_fn.Response("ok", status=200)
 
-        # 3. Parse Update
+        # 4) Parse update (never raise; never log raw body)
         try:
-            data = req.get_json()
+            data = req.get_json(silent=True) or {}
             update = Update.de_json(data, bot)
-        except Exception:
-            logger.error("Failed to parse Telegram update JSON", exc_info=True)
+        except Exception as e:
+            logger.warning(f"Failed to parse Telegram update JSON: {e}", exc_info=True)
             return https_fn.Response("ok", status=200)
 
-        if not update or not update.message or not update.message.text:
-            logger.info("Received an update we don't handle.", extra={'props': {'update': update.to_json() if update else None}})
+        # Ignore non-message updates or non-text messages
+        if not update or not getattr(update, "message", None) or not getattr(update.message, "text", None):
             return https_fn.Response("ok", status=200)
 
-        # 4. Handle Message
         chat_id = update.message.chat_id
         user_id = update.message.from_user.id
         text = update.message.text
 
+        # 5) Basic commands
         if text == "/start":
             asyncio.run(send_message_safe(bot, chat_id, "Welcome! Tell me your Manifesto (Goal)."))
             return https_fn.Response("ok", status=200)
 
+        # 6) Safe mode: deterministic handling only (no LLM calls)
         if is_safe_mode():
             asyncio.run(handle_safe_mode(user_id, chat_id, text, bot))
             return https_fn.Response("ok", status=200)
 
-        # Process with Agent
-        response_text = agent.generate_response_with_tools(str(user_id), text)
+        # 7) Normal mode: agent
+        try:
+            response_text = agent.generate_response_with_tools(str(user_id), text)
+        except Exception as e:
+            logger.error(f"Agent error: {e}", exc_info=True)
+            # Do not leak details to user
+            asyncio.run(send_message_safe(bot, chat_id, "LLM is unavailable right now. I can still manage tasks."))
+            return https_fn.Response("ok", status=200)
+
         asyncio.run(send_message_safe(bot, chat_id, response_text))
-
         return https_fn.Response("ok", status=200)
 
-    except Exception:
-        logger.exception("Unhandled error in webhook")
-        if update and update.message and bot:
-            try:
-                chat_id = update.message.chat_id
-                asyncio.run(send_message_safe(bot, chat_id, "I encountered an internal error. My developers have been notified."))
-            except Exception:
-                logger.error("Failed to send critical error message to user", exc_info=True)
-
-        # ALWAYS return 200 to Telegram to prevent webhook retries
+    except TelegramWebhookError as e:
+        # Keep as a control-flow/error classification hook; still return 200.
+        logger.error(f"Caught TelegramWebhookError: {e}", exc_info=True)
+        try:
+            chat_id = (data.get("message", {}).get("chat", {}) or {}).get("id")
+            if bot and chat_id:
+                asyncio.run(send_message_safe(bot, chat_id, "I hit an internal error, but I'm still alive. Try again."))
+        except Exception:
+            logger.error("Failed to notify user after TelegramWebhookError", exc_info=True)
         return https_fn.Response("ok", status=200)
 
+    except Exception as e:
+        logger.error(f"Unhandled error in webhook: {e}", exc_info=True)
+        try:
+            # best-effort notify
+            chat_id = (data.get("message", {}).get("chat", {}) or {}).get("id")
+            if bot and chat_id:
+                asyncio.run(send_message_safe(bot, chat_id, "A critical error occurred."))
+        except Exception:
+            logger.error("Failed to notify user after unhandled error", exc_info=True)
 
-@scheduler_fn.on_schedule(schedule="every day 08:00")
-def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
-    """
-    Scheduled Cloud Function for Morning Push.
-    """
-    logger.info("Starting morning briefing...")
-    try:
-        if not bot:
-            logger.error("TELEGRAM_TOKEN is not set. Bot is not initialized.")
-            return
-
-        # 1. Fetch all users
-        db = get_db()
-        users_ref = db.collection("users")
-        docs = users_ref.stream()
-
-        # Process each user
-        count = 0
-        for doc in docs:
-            user_id = doc.id
-            if is_safe_mode():
-                continue
-
-            try:
-                message = agent.generate_morning_briefing(user_id)
-                if message:
-                    asyncio.run(send_message_safe(bot, int(user_id), message))
-                    count += 1
-            except Exception:
-                logger.error(f"Error generating briefing for user_id: {user_id}", exc_info=True)
-
-        logger.info(f"Morning briefing complete. Sent to {count} users.")
-
-    except Exception:
-        logger.exception("Morning briefing failed with unhandled exception.")
+        return https_fn.Response("ok", status=200)

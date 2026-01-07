@@ -79,6 +79,10 @@ class Agent:
         except exceptions.ResourceExhausted as e:
             logger.warning(f"Gemini 429/ResourceExhausted: {e}")
             return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
+        except exceptions.GoogleAPICallError as e:
+            # This can contain sensitive info, so we log it carefully
+            logger.error(f"Gemini API Call Error: {e}", exc_info=True)
+            return "I encountered an issue connecting to my core brain functions. Please try again."
         except Exception as e:
             logger.error(f"Gemini General Exception: {e}", exc_info=True)
             return "I encountered a temporary issue with my brain. Please try again."
