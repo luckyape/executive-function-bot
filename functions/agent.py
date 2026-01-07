@@ -82,7 +82,15 @@ class Agent:
 
         except exceptions.ResourceExhausted as e:
             logger.warning(f"Gemini 429/ResourceExhausted: {e}")
-            raise GeminiRateLimitError("Gemini API rate limit exceeded.")
+        except exceptions.ResourceExhausted as e:
+            # Gemini quota/rate-limit. Do not raise; degrade gracefully.
+            logger.warning(f"Gemini 429/ResourceExhausted: {e}")
+            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
+
+        except exceptions.GoogleAPICallError as e:
+            # Might include sensitive details; keep logs but don't leak to user
+            logger.error(f"Gemini API Call Error: {e}", exc_info=True)
+            return "I hit a temporary issue talking to Gemini. Try again shortly (tasks still work)."
         except Exception as e:
             logger.error(f"Gemini General Exception: {e}", exc_info=True)
             return "I encountered a temporary issue with my brain. Please try again."
