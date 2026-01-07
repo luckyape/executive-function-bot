@@ -1,7 +1,5 @@
 import logging
-import asyncio
 from telegram import Bot
-from config import get_config
 
 logger = logging.getLogger(__name__)
 
