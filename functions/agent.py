@@ -1,8 +1,12 @@
 import os
+import logging
 from google import genai
 from google.genai import types
+from google.api_core import exceptions
 from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
 from config import get_config
+
+logger = logging.getLogger(__name__)
 
 class Agent:
     def __init__(self):
@@ -31,13 +35,13 @@ class Agent:
             self.api_key = get_config("GEMINI_API_KEY")
 
         if not self.api_key:
-            print("Warning: GEMINI_API_KEY not set. Agent will fail to generate responses.")
+            logger.warning("GEMINI_API_KEY not set. Agent will fail to generate responses.")
             return None
 
         try:
             self.client = genai.Client(api_key=self.api_key)
         except Exception as e:
-            print(f"Failed to initialize GenAI Client: {e}")
+            logger.error(f"Failed to initialize GenAI Client: {e}")
             return None
 
         return self.client
@@ -72,8 +76,12 @@ class Agent:
             response = chat.send_message(f"User ID: {user_id}\nMessage: {message_text}")
             return response.text
 
+        except exceptions.ResourceExhausted as e:
+            logger.warning(f"Gemini 429/ResourceExhausted: {e}")
+            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
         except Exception as e:
-            return f"Agent Error: {str(e)}"
+            logger.error(f"Gemini General Exception: {e}", exc_info=True)
+            return "I encountered a temporary issue with my brain. Please try again."
 
     def generate_morning_briefing(self, user_id: str) -> str:
         """
@@ -101,5 +109,9 @@ class Agent:
                 contents=prompt
             )
             return response.text
+        except exceptions.ResourceExhausted as e:
+            logger.warning(f"Morning Briefing Skipped (Rate Limit): {e}")
+            return None # Skip push if rate limited
         except Exception as e:
-            return f"Briefing Error: {str(e)}"
+            logger.error(f"Briefing Error: {e}", exc_info=True)
+            return None

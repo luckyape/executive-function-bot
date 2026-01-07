@@ -1,12 +1,13 @@
 import os
 import json
 import logging
+import asyncio
 from firebase_functions import https_fn, scheduler_fn
 from telegram import Update, Bot
 from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
-from tg_utils import send_message_safe
+from telegram import send_message_safe
 
 # Initialize Logger
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +20,7 @@ agent = Agent()
 TELEGRAM_TOKEN = get_config("TELEGRAM_TOKEN")
 bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
 
-def handle_safe_mode(user_id: int, chat_id: int, text: str):
+async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot):
     """
     Deterministic logic for Safe Mode (No LLM).
     """
@@ -31,27 +32,27 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str):
     manifesto = get_manifesto(str(user_id))
     if manifesto == "No manifesto set.":
         set_manifesto(str(user_id), text)
-        send_message_safe(chat_id, f"[SAFE MODE] Manifesto set: {text}")
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] Manifesto set: {text}")
         return
 
     # 2. Commands
     if text_lower.startswith("add "):
         task = text[4:].strip()
         add_task(str(user_id), task)
-        send_message_safe(chat_id, f"[SAFE MODE] Task added: {task}")
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] Task added: {task}")
     elif text_lower == "list" or text_lower == "/list":
         tasks = get_pending_tasks(str(user_id))
         if not tasks:
-            send_message_safe(chat_id, "[SAFE MODE] No pending tasks.")
+            await send_message_safe(bot, chat_id, "[SAFE MODE] No pending tasks.")
         else:
             msg = "\n".join([f"- {t['description']}" for t in tasks])
-            send_message_safe(chat_id, f"[SAFE MODE] Tasks:\n{msg}")
+            await send_message_safe(bot, chat_id, f"[SAFE MODE] Tasks:\n{msg}")
     elif text_lower.startswith("done "):
         frag = text[5:].strip()
         res = complete_task(str(user_id), frag)
-        send_message_safe(chat_id, f"[SAFE MODE] {res}")
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] {res}")
     else:
-        send_message_safe(chat_id, f"[SAFE MODE] Unknown command. Available: add <task>, list, done <fragment>.")
+        await send_message_safe(bot, chat_id, f"[SAFE MODE] Unknown command. Available: add <task>, list, done <fragment>.")
 
 @https_fn.on_request()
 def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
@@ -88,7 +89,7 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         if update.message:
              # Handle new user /start
             if update.message.text == "/start":
-                 send_message_safe(update.message.chat_id, "Welcome! Tell me your Manifesto (Goal).")
+                 asyncio.run(send_message_safe(bot, update.message.chat_id, "Welcome! Tell me your Manifesto (Goal)."))
                  return https_fn.Response("ok", status=200)
 
             if update.message.text:
@@ -98,17 +99,17 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
 
                 # Check Safe Mode
                 if is_safe_mode():
-                    handle_safe_mode(user_id, chat_id, text)
+                    asyncio.run(handle_safe_mode(user_id, chat_id, text, bot))
                     return https_fn.Response("ok", status=200)
 
                 # Process with Agent
                 try:
                     # TODO: Implement timeout logic if needed, but Cloud Functions has its own timeout.
                     response_text = agent.generate_response_with_tools(str(user_id), text)
-                    send_message_safe(chat_id, response_text)
+                    asyncio.run(send_message_safe(bot, chat_id, response_text))
                 except Exception as e:
                     logger.error(f"Agent Error: {e}")
-                    send_message_safe(chat_id, "I encountered an internal error.")
+                    asyncio.run(send_message_safe(bot, chat_id, "I encountered an internal error."))
 
             # Handle Captions (for photos/docs with text)
             elif update.message.caption:
@@ -153,7 +154,7 @@ def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
             try:
                 message = agent.generate_morning_briefing(user_id)
                 if message:
-                    send_message_safe(int(user_id), message)
+                    asyncio.run(send_message_safe(bot, int(user_id), message))
                     count += 1
             except Exception as e:
                 logger.error(f"Error generating briefing for {user_id}: {e}")
