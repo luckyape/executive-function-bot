@@ -1,16 +1,3 @@
 {
-  "functions": [
-    {
-      "source": "functions",
-      "codebase": "default",
-      "runtime": "python311",
-      "ignore": [
-        "venv",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.log.*",
-        "__pycache__"
-      ]
-    }
-  ]
+"functions": { "source": "functions", "runtime": "python311" }
 }
