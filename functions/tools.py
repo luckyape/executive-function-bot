@@ -127,8 +127,7 @@ def complete_task(user_id: str, query: str = "") -> str:
                 
                 # Check if the cached list is stale (older than 1 hour)
                 if last_listed_timestamp:
-                    import datetime as dt
-                    now = dt.datetime.now(dt.timezone.utc)
+                    now = datetime.datetime.now(datetime.timezone.utc)
                     cache_age = now - last_listed_timestamp
                     if cache_age.total_seconds() > 3600:  # 1 hour
                         return "The task list is outdated. Please 'list' tasks first to see current tasks."
