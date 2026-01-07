@@ -40,3 +40,6 @@ jobs:
         env:
           # Explicitly tell gcloud/firebase which python to use if it tries to be smart
           CLOUDSDK_PYTHON: ${{ github.workspace }}/functions/venv/bin/python
+
+      - name: Persist Secret Manager bindings
+        run: gcloud run services update telegram-webhook --region us-central1 --project executive-function-coaching --update-secrets TELEGRAM_TOKEN=TELEGRAM_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest
