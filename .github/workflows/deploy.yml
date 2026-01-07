@@ -6,6 +6,11 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  GCP_PROJECT_ID: '218883677076'
+  CLOUD_RUN_SERVICE: 'telegram-webhook'
+  CLOUD_RUN_REGION: 'us-central1'
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -36,10 +41,15 @@ jobs:
 
           cd ..
           # Use npx -y to auto-accept install, ensure latest version
-          npx -y firebase-tools@latest deploy --project 218883677076 --only functions --force
+          npx -y firebase-tools@latest deploy --project ${{ env.GCP_PROJECT_ID }} --only functions --force
         env:
           # Explicitly tell gcloud/firebase which python to use if it tries to be smart
           CLOUDSDK_PYTHON: ${{ github.workspace }}/functions/venv/bin/python
 
       - name: Persist Secret Manager bindings
-        run: gcloud run services update telegram-webhook --region us-central1 --project executive-function-coaching --update-secrets TELEGRAM_TOKEN=TELEGRAM_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest
+        continue-on-error: true
+        run: |
+          gcloud run services update ${{ env.CLOUD_RUN_SERVICE }} \
+            --region ${{ env.CLOUD_RUN_REGION }} \
+            --project ${{ env.GCP_PROJECT_ID }} \
+            --update-secrets TELEGRAM_TOKEN=TELEGRAM_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest
