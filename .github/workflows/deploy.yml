@@ -14,13 +14,11 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # AUTHENTICATE WITH GOOGLE (The new way)
+      # AUTHENTICATE WITH GOOGLE
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          # CHANGE THIS LINE:
           workload_identity_provider: '${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}'
-          # CHANGE THIS LINE TOO:
           service_account: '${{ secrets.SERVICE_ACCOUNT_EMAIL }}'
 
       - name: Setup Python
@@ -28,16 +26,13 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
-        run: |
-          if [ -f functions/requirements.txt ]; then pip install -r functions/requirements.txt; else pip install -r requirements.txt; fi
-
-      - name: Deploy to Firebase
-        # NOTICE: No --token flag here. It uses the active session from the step above.
-        run: npx firebase-tools deploy --project 218883677076 --only functions --force
+      # FIX: Create the venv BEFORE deploying
       - name: Create venv and Install Dependencies
         run: |
           cd functions
           python -m venv venv
           source venv/bin/activate
           pip install -r requirements.txt
+
+      - name: Deploy to Firebase
+        run: npx firebase-tools deploy --project 218883677076 --only functions --force
