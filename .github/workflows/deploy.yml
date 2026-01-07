@@ -2,7 +2,7 @@ name: Deploy to Firebase
 
 on: [push, workflow_dispatch]
 
-# PERMISSIONS REQUIRED FOR OIDC (Keyless Auth)
+# PERMISSIONS REQUIRED FOR OIDC
 permissions:
   contents: read
   id-token: write
@@ -14,7 +14,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # AUTHENTICATE WITH GOOGLE
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -26,10 +25,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      # FIX: Create the venv BEFORE deploying
+      # FIX: Run directly in Root (No 'cd functions')
       - name: Create venv and Install Dependencies
         run: |
-          cd functions
           python -m venv venv
           source venv/bin/activate
           pip install -r requirements.txt
