@@ -45,11 +45,15 @@ async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot):
         if not tasks:
             await send_message_safe(bot, chat_id, "[SAFE MODE] No pending tasks.")
         else:
-            msg = "\n".join([f"- {t['description']}" for t in tasks])
+            # Format with index
+            msg = "\n".join([f"#{t['index']} - {t['description']}" for t in tasks])
             await send_message_safe(bot, chat_id, f"[SAFE MODE] Tasks:\n{msg}")
-    elif text_lower.startswith("done "):
-        frag = text[5:].strip()
-        res = complete_task(str(user_id), frag)
+    elif text_lower.startswith("done"):
+        # Pass the whole fragment, e.g., "done #1" -> "#1"
+        # "done" -> ""
+        # "done task" -> "task"
+        query = text[4:].strip()
+        res = complete_task(str(user_id), query)
         await send_message_safe(bot, chat_id, f"[SAFE MODE] {res}")
     else:
         await send_message_safe(bot, chat_id, f"[SAFE MODE] Unknown command. Available: add <task>, list, done <fragment>.")
