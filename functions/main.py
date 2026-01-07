@@ -4,7 +4,7 @@ import logging
 import asyncio
 from firebase_functions import https_fn, scheduler_fn
 from telegram import Update, Bot
-from agent import Agent
+from agent import Agent, GeminiRateLimitError
 from firestore_client import get_db
 from config import get_config, is_safe_mode
 from telegram import send_message_safe
@@ -20,11 +20,14 @@ agent = Agent()
 TELEGRAM_TOKEN = get_config("TELEGRAM_TOKEN")
 bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
 
-async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot):
+async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot, from_fallback: bool = False):
     """
     Deterministic logic for Safe Mode (No LLM).
     """
     from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+
+    if from_fallback:
+        await send_message_safe(bot, chat_id, "My AI brain is a bit busy right now, so I'm in Safe Mode. You can still 'add', 'list', or 'done' tasks.")
 
     text_lower = text.lower().strip()
 
@@ -107,6 +110,10 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
                     # TODO: Implement timeout logic if needed, but Cloud Functions has its own timeout.
                     response_text = agent.generate_response_with_tools(str(user_id), text)
                     asyncio.run(send_message_safe(bot, chat_id, response_text))
+                except GeminiRateLimitError:
+                    # Fallback to Safe Mode on 429
+                    logger.warning(f"Gemini rate limited. Switching to safe mode for user {user_id}")
+                    asyncio.run(handle_safe_mode(user_id, chat_id, text, bot, from_fallback=True))
                 except Exception as e:
                     logger.error(f"Agent Error: {e}")
                     asyncio.run(send_message_safe(bot, chat_id, "I encountered an internal error."))
