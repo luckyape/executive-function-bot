@@ -1,0 +1,105 @@
+import os
+from google import genai
+from google.genai import types
+from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
+from config import get_config
+
+class Agent:
+    def __init__(self):
+        # Use get_config to allow for 'gemini.key' or 'GEMINI_API_KEY'
+        self.api_key = get_config("GEMINI_API_KEY")
+        self.client = None
+        self.model = "gemini-2.0-flash"
+
+        # System instructions
+        self.system_instruction = (
+            "You are a proactive Executive Coach. Your goal is to help the user achieve their 'Manifesto'. "
+            "You have access to tools to manage their tasks and manifesto. "
+            "ALWAYS check the manifesto if you don't know it. "
+            "If the user adds a task, save it. "
+            "If the user completes a task, mark it done. "
+            "Be concise, direct, and helpful. No fluff."
+        )
+
+    def _get_client(self):
+        """Lazy initialization of the GenAI client."""
+        if self.client:
+            return self.client
+
+        if not self.api_key:
+            # Try re-fetching in case env vars were late-loaded (unlikely in Lambda but safe)
+            self.api_key = get_config("GEMINI_API_KEY")
+
+        if not self.api_key:
+            print("Warning: GEMINI_API_KEY not set. Agent will fail to generate responses.")
+            return None
+
+        try:
+            self.client = genai.Client(api_key=self.api_key)
+        except Exception as e:
+            print(f"Failed to initialize GenAI Client: {e}")
+            return None
+
+        return self.client
+
+    def generate_response_with_tools(self, user_id: str, message_text: str) -> str:
+        """
+        Executes the Agent Loop.
+        """
+        client = self._get_client()
+        if not client:
+            return "Error: LLM client not initialized (missing API Key?)."
+
+        # Define tools configuration
+        tools_config = [types.Tool(function_declarations=[
+            types.FunctionDeclaration(**td) for td in TOOL_DEFINITIONS
+        ])]
+
+        # Re-import functions to pass them directly
+        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
+
+        try:
+            chat = client.chats.create(
+                model=self.model,
+                config=types.GenerateContentConfig(
+                    tools=my_tools,
+                    system_instruction=self.system_instruction,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False)
+                )
+            )
+
+            response = chat.send_message(f"User ID: {user_id}\nMessage: {message_text}")
+            return response.text
+
+        except Exception as e:
+            return f"Agent Error: {str(e)}"
+
+    def generate_morning_briefing(self, user_id: str) -> str:
+        """
+        Proactive function: Fetches data and generates a briefing.
+        """
+        client = self._get_client()
+        if not client:
+            return ""
+
+        manifesto = get_manifesto(str(user_id))
+        pending_tasks = get_pending_tasks(str(user_id))
+
+        task_list = "\n".join([f"- {t['description']}" for t in pending_tasks])
+
+        prompt = (
+            f"User ID: {user_id}\n"
+            f"Manifesto: {manifesto}\n"
+            f"Pending Tasks:\n{task_list}\n\n"
+            "Based on these tasks and this goal, write a 1-sentence 'Kick in the ass' message."
+        )
+
+        try:
+            response = client.models.generate_content(
+                model=self.model,
+                contents=prompt
+            )
+            return response.text
+        except Exception as e:
+            return f"Briefing Error: {str(e)}"
