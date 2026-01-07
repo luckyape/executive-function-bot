@@ -1,16 +1,14 @@
 {
   "functions": [
     {
-      "source": ".",
+      "source": "functions",
       "codebase": "default",
       "ignore": [
         "venv",
         ".git",
         "firebase-debug.log",
-        "firebase-debug.log.*"
-      ],
-      "predeploy": [
-        "pip install -r requirements.txt"
+        "firebase-debug.log.*",
+        "__pycache__"
       ]
     }
   ]
