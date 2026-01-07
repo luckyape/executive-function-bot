@@ -2,10 +2,12 @@ import os
 from google import genai
 from google.genai import types
 from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
+from config import get_config
 
 class Agent:
     def __init__(self):
-        self.api_key = os.environ.get("GEMINI_API_KEY")
+        # Use get_config to allow for 'gemini.key' or 'GEMINI_API_KEY'
+        self.api_key = get_config("GEMINI_API_KEY")
         self.client = None
         self.model = "gemini-2.0-flash"
 
@@ -23,6 +25,10 @@ class Agent:
         """Lazy initialization of the GenAI client."""
         if self.client:
             return self.client
+
+        if not self.api_key:
+            # Try re-fetching in case env vars were late-loaded (unlikely in Lambda but safe)
+            self.api_key = get_config("GEMINI_API_KEY")
 
         if not self.api_key:
             print("Warning: GEMINI_API_KEY not set. Agent will fail to generate responses.")
