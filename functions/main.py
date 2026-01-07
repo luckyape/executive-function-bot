@@ -54,7 +54,8 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool 
             "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.",
         )
 
-    text_lower = (text or "").lower().strip()
+    text = text or ""
+    text_lower = text.lower().strip()
 
     # 1) Manifesto bootstrap
     manifesto = get_manifesto(str(user_id))
@@ -147,7 +148,7 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             handle_safe_mode(user_id, chat_id, text)
             return https_fn.Response("ok", status=200)
 
-        # 7) Normal mode: agent (agent handles Gemini errors by returning a safe message)
+        # 7) Normal mode: agent
         try:
             response_text = agent.generate_response_with_tools(str(user_id), text)
         except Exception as e:
