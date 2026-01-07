@@ -23,11 +23,24 @@ bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
 async def handle_safe_mode(user_id: int, chat_id: int, text: str, bot: Bot, from_fallback: bool = False):
     """
     Deterministic logic for Safe Mode (No LLM).
+
+    Args:
+        user_id: The user's ID.
+        chat_id: The chat ID to which responses should be sent.
+        text: The user's message text.
+        bot: The Telegram bot instance used to send messages.
+        from_fallback: If True, sends a notification that the bot has switched to Safe Mode,
+            for example due to rate limiting or other issues with the primary AI mode.
     """
     from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
 
     if from_fallback:
-        await send_message_safe(bot, chat_id, "My AI brain is a bit busy right now, so I'm in Safe Mode. You can still 'add', 'list', or 'done' tasks.")
+        await send_message_safe(
+            bot,
+            chat_id,
+            "I'm temporarily using simplified processing due to high AI demand. "
+            "You can still use Safe Mode commands: 'add', 'list', or 'done' tasks."
+        )
 
     text_lower = text.lower().strip()
 
