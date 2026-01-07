@@ -18,8 +18,10 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: '${{ secrets.GCP_WIF_PROVIDER }}'
-          service_account: '${{ secrets.GCP_SA_EMAIL }}'
+          # CHANGE THIS LINE:
+          workload_identity_provider: '${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}'
+          # CHANGE THIS LINE TOO:
+          service_account: '${{ secrets.SERVICE_ACCOUNT_EMAIL }}'
 
       - name: Setup Python
         uses: actions/setup-python@v4
