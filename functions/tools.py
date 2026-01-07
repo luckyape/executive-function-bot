@@ -73,12 +73,15 @@ def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
             data["created_at"] = str(data["created_at"])
         tasks.append(data)
 
-    # Save the list of task IDs for the 'done #' command
-    user_ref.set({"last_listed_tasks": task_ids}, merge=True)
+    # Save the list of task IDs for the 'done #' command with a timestamp
+    user_ref.set({
+        "last_listed_tasks": task_ids,
+        "last_listed_tasks_timestamp": firestore.SERVER_TIMESTAMP
+    }, merge=True)
 
     return tasks
 
-def complete_task(user_id: str, query: str) -> str:
+def complete_task(user_id: str, query: str = "") -> str:
     """
     Marks a task as done based on a query which can be an index,
     a description fragment, or empty (for single-task completion).
@@ -118,12 +121,27 @@ def complete_task(user_id: str, query: str) -> str:
             index = int(query[1:]) - 1 # 1-based to 0-based
             user_doc = user_ref.get()
             if user_doc.exists:
-                last_listed_tasks = user_doc.to_dict().get("last_listed_tasks")
+                user_data = user_doc.to_dict()
+                last_listed_tasks = user_data.get("last_listed_tasks")
+                last_listed_timestamp = user_data.get("last_listed_tasks_timestamp")
+                
+                # Check if the cached list is stale (older than 1 hour)
+                if last_listed_timestamp:
+                    import datetime as dt
+                    now = dt.datetime.now(dt.timezone.utc)
+                    cache_age = now - last_listed_timestamp
+                    if cache_age.total_seconds() > 3600:  # 1 hour
+                        return "The task list is outdated. Please 'list' tasks first to see current tasks."
+                
                 if last_listed_tasks and 0 <= index < len(last_listed_tasks):
                     task_id = last_listed_tasks[index]
                     task_doc = tasks_ref.document(task_id).get()
                     if task_doc.exists:
-                        description = task_doc.to_dict().get("description")
+                        task_data = task_doc.to_dict() or {}
+                        # Verify the task is still pending before completing it
+                        if task_data.get("status") != "pending":
+                            return "That task is no longer pending. Please 'list' tasks to see your current pending tasks."
+                        description = task_data.get("description")
                         tasks_ref.document(task_id).update({"status": "done"})
                         return f"Task marked as done: {description}"
                     else:
@@ -212,9 +230,9 @@ TOOL_DEFINITIONS = [
             "type": "OBJECT",
             "properties": {
                 "user_id": {"type": "STRING", "description": "The Telegram user ID"},
-                "query": {"type": "STRING", "description": "The index, phrase, or empty string to identify the task"}
+                "query": {"type": "STRING", "description": "The index, phrase, or empty string to identify the task. Can be empty for single-task completion."}
             },
-            "required": ["user_id", "query"]
+            "required": ["user_id"]
         }
     }
 ]
