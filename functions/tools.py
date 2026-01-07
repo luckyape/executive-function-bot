@@ -81,8 +81,20 @@ def complete_task(user_id: str, query: str) -> str:
     user_ref = db.collection("users").document(str(user_id))
     tasks_ref = user_ref.collection("tasks")
 
-    pending_tasks = get_pending_tasks(user_id) # This already orders them
+    # Query pending tasks directly here instead of calling get_pending_tasks
+    # to avoid updating any cached "last_listed_tasks" used for numeric indices.
+    pending_tasks_query = tasks_ref.where(
+        filter=FieldFilter("status", "==", "pending")
+    ).order_by("created_at")
 
+    pending_tasks = []
+    for idx, doc in enumerate(pending_tasks_query.stream(), start=1):
+        data = doc.to_dict() or {}
+        pending_tasks.append({
+            "id": doc.id,
+            "description": data.get("description", ""),
+            "index": idx,
+        })
     # Case 1: "done" or "mark my one task done" with a single pending task
     if not query or query.lower() == "mark my one task done":
         if len(pending_tasks) == 1:
