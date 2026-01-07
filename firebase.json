@@ -12,5 +12,8 @@
         "__pycache__"
       ]
     }
-  ]
+  ],
+  "firestore": {
+    "indexes": "firestore.indexes.json"
+  }
 }
