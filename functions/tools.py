@@ -81,7 +81,13 @@ def complete_task(user_id: str, query: Optional[str] = None) -> str:
     if not pending_tasks:
         return "You have no pending tasks to complete."
 
-    if not query or query.lower() == "done":
+    # Normalize query for robustness, but keep original for messages
+    original_query_str = query if query is not None else ""
+    clean_query = query.strip().lower() if query else ""
+    if clean_query.startswith("done"):
+        clean_query = clean_query.removeprefix("done").strip()
+
+    if not clean_query:
         if len(pending_tasks) == 1:
             task_to_complete = pending_tasks[0]
             task_to_complete.reference.update({"status": "done"})
@@ -89,9 +95,9 @@ def complete_task(user_id: str, query: Optional[str] = None) -> str:
         else:
             return "You have multiple pending tasks. Please specify which one to complete (e.g., 'done #1' or 'done <task name>')."
 
-    if query.startswith("#"):
+    if clean_query.startswith("#"):
         try:
-            index = int(query[1:]) - 1
+            index = int(clean_query[1:]) - 1
             user_doc = user_ref.get()
             if not user_doc.exists: return "Cannot find user data. Please 'list' tasks first."
             last_listed_ids = user_doc.to_dict().get("last_listed_tasks")
@@ -110,7 +116,8 @@ def complete_task(user_id: str, query: Optional[str] = None) -> str:
         except (ValueError, IndexError):
             return "Invalid task number format. Please use '#1', '#2', etc."
 
-    matched_tasks = [p for p in pending_tasks if query.lower() in p.to_dict().get("description", "").lower()]
+    # Last resort: fuzzy match on the cleaned query
+    matched_tasks = [p for p in pending_tasks if clean_query in p.to_dict().get("description", "").lower()]
 
     if len(matched_tasks) == 1:
         task_to_complete = matched_tasks[0]
@@ -118,9 +125,9 @@ def complete_task(user_id: str, query: Optional[str] = None) -> str:
         return f"Task marked as done: {task_to_complete.to_dict().get('description')}"
     elif len(matched_tasks) > 1:
         descriptions = [f" - {d.to_dict().get('description')}" for d in matched_tasks]
-        return f"Multiple tasks match your query '{query}'. Please be more specific:\n" + "\n".join(descriptions)
+        return f"Multiple tasks match your query '{original_query_str}'. Please be more specific:\n" + "\n".join(descriptions)
     else:
-        return f"No pending task found matching '{query}'."
+        return f"No pending task found matching '{original_query_str}'."
 
 # Map of tool names to functions for easy execution
 TOOL_MAP = {
