@@ -2,17 +2,12 @@ import os
 import json
 import logging
 from firebase_functions import https_fn, scheduler_fn
-from firebase_admin import initialize_app, firestore
 from telegram import Update, Bot
 from agent import Agent
-from tools import db # Import db from tools to ensure connection
+from firestore_client import get_db
 
-# Initialize Firebase App
-# It might have been initialized in tools.py, but safe to ensure it's up.
-try:
-    initialize_app()
-except ValueError:
-    pass
+# NOTE: Remove early initialization of firebase_admin here.
+# It is handled by get_db() when needed.
 
 # Initialize Logger
 logging.basicConfig(level=logging.INFO)
@@ -47,13 +42,6 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             text = update.message.text
 
             # Process with Agent
-            # Using asyncio.run if needed, but python-telegram-bot v20+ is async.
-            # However, Cloud Functions 2nd gen handles async if we define the function as async,
-            # OR we can just use the synchronous methods if available (PTB is mostly async now).
-            # We will use `asyncio.run` inside the sync wrapper or switch to async function definition.
-            # firebase_functions supports async def.
-
-            # Let's delegate to a helper logic that handles the async part
             import asyncio
             response_text = agent.generate_response_with_tools(str(user_id), text)
 
@@ -79,6 +67,7 @@ def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
         return
 
     # 1. Fetch all users
+    db = get_db() # Lazy init here
     users_ref = db.collection("users")
     docs = users_ref.stream()
 
@@ -94,8 +83,6 @@ def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
     # Note: For large user bases, this should be fan-out (Pub/Sub), but for this scale, iteration is fine.
     for doc in docs:
         user_id = doc.id
-        # We could check timezone here if we stored it and wanted to be precise.
-        # For now, we assume global 08:00 UTC trigger as per requirements.
 
         message = agent.generate_morning_briefing(user_id)
         if message:

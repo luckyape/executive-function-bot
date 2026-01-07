@@ -60,9 +60,29 @@ A proactive "Executive Coach" Telegram bot built on Firebase Cloud Functions and
     curl "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook?url=<YOUR_FUNCTION_URL>"
     ```
 
-## Local Testing
+## Local Development & Emulation
 
-You can simulate the functions locally using the Firebase Emulator or by running the python scripts directly if you mock the request objects.
+### Using the Firebase Emulator
+To run functions locally without connecting to the production Firestore:
+1.  Start the emulator:
+    ```bash
+    firebase emulators:start
+    ```
+2.  Set the environment variable (if running python scripts directly outside the emulator context):
+    ```bash
+    export FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
+    export GCLOUD_PROJECT="demo-project"
+    ```
+
+### Using Production Firestore Locally
+If you want to connect to the real database from your local machine:
+1.  Authenticate with Google Cloud:
+    ```bash
+    gcloud auth application-default login
+    ```
+2.  The code will automatically detect the credentials.
+
+## Local Testing
 
 To test the agent logic directly:
 ```python

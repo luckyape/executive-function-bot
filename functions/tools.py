@@ -1,22 +1,15 @@
 import os
 import datetime
 from typing import List, Dict, Any, Optional
-import firebase_admin
-from firebase_admin import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
+from firestore_client import get_db
 
-# Initialize Firebase Admin if not already initialized
-# Note: In Cloud Functions, this is usually done in main.py, but we need the client here.
-# We'll assume it's initialized in main.py before tools are called, OR check here.
-try:
-    firebase_admin.get_app()
-except ValueError:
-    firebase_admin.initialize_app()
-
-db = firestore.client()
+# NOTE: No global db initialization here!
+# All functions must call get_db() to access Firestore.
 
 def get_manifesto(user_id: str) -> str:
     """Returns the user's North Star goal (Manifesto)."""
+    db = get_db()
     doc = db.collection("users").document(str(user_id)).get()
     if doc.exists:
         return doc.to_dict().get("manifesto", "No manifesto set.")
@@ -24,14 +17,21 @@ def get_manifesto(user_id: str) -> str:
 
 def set_manifesto(user_id: str, manifesto: str) -> str:
     """Sets or updates the user's North Star goal."""
+    db = get_db()
     db.collection("users").document(str(user_id)).set({
         "manifesto": manifesto,
         "updated_at": firestore.SERVER_TIMESTAMP
     }, merge=True)
     return "Manifesto updated."
 
+# We need firestore module for SERVER_TIMESTAMP constants if we use them directly.
+# However, `firestore.SERVER_TIMESTAMP` comes from `firebase_admin.firestore`.
+# Importing it at top level is fine as it doesn't trigger auth.
+from firebase_admin import firestore
+
 def add_task(user_id: str, description: str) -> str:
     """Saves a new task to Firestore for the user."""
+    db = get_db()
     task_ref = db.collection("users").document(str(user_id)).collection("tasks").document()
     task_ref.set({
         "description": description,
@@ -42,6 +42,7 @@ def add_task(user_id: str, description: str) -> str:
 
 def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
     """Returns a list of incomplete tasks."""
+    db = get_db()
     tasks_ref = db.collection("users").document(str(user_id)).collection("tasks")
     query = tasks_ref.where(filter=FieldFilter("status", "==", "pending")).stream()
 
@@ -58,6 +59,7 @@ def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
 def complete_task(user_id: str, task_description_fragment: str) -> str:
     """Marks a task as done based on a description fragment."""
     # Since LLM might not know ID, we search by description.
+    db = get_db()
     tasks_ref = db.collection("users").document(str(user_id)).collection("tasks")
     query = tasks_ref.where(filter=FieldFilter("status", "==", "pending")).stream()
 
