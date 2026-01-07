@@ -41,35 +41,112 @@ def add_task(user_id: str, description: str) -> str:
     return f"Task added: {description}"
 
 def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
-    """Returns a list of incomplete tasks."""
+    """
+    Returns a list of incomplete tasks, indexed numerically.
+    It also saves the task IDs of this list for future reference.
+    """
     db = get_db()
-    tasks_ref = db.collection("users").document(str(user_id)).collection("tasks")
-    query = tasks_ref.where(filter=FieldFilter("status", "==", "pending")).stream()
+    user_ref = db.collection("users").document(str(user_id))
+    tasks_ref = user_ref.collection("tasks")
+
+    # Query pending tasks, ordering by creation date for consistent numbering.
+    # NOTE: This is a compound query (filter by "status", order by "created_at").
+    # Firestore requires a composite index for this to work without a runtime error.
+    # Ensure an index exists for the tasks subcollection with:
+    #   status  (==)        and
+    #   created_at (ascending)
+    # under users/{userId}/tasks in the Firestore index configuration.
+    query = tasks_ref.where(
+        filter=FieldFilter("status", "==", "pending")
+    ).order_by("created_at").stream()
 
     tasks = []
-    for doc in query:
+    task_ids = []
+    for i, doc in enumerate(query):
         data = doc.to_dict()
         data["id"] = doc.id
+        data["index"] = i + 1  # 1-based index for user display
+        task_ids.append(doc.id)
+
         # Convert timestamp to string for LLM readability
         if "created_at" in data and data["created_at"]:
             data["created_at"] = str(data["created_at"])
         tasks.append(data)
+
+    # Save the list of task IDs for the 'done #' command
+    user_ref.set({"last_listed_tasks": task_ids}, merge=True)
+
     return tasks
 
-def complete_task(user_id: str, task_description_fragment: str) -> str:
-    """Marks a task as done based on a description fragment."""
-    # Since LLM might not know ID, we search by description.
+def complete_task(user_id: str, query: str) -> str:
+    """
+    Marks a task as done based on a query which can be an index,
+    a description fragment, or empty (for single-task completion).
+    """
     db = get_db()
-    tasks_ref = db.collection("users").document(str(user_id)).collection("tasks")
-    query = tasks_ref.where(filter=FieldFilter("status", "==", "pending")).stream()
+    user_ref = db.collection("users").document(str(user_id))
+    tasks_ref = user_ref.collection("tasks")
 
-    for doc in query:
-        data = doc.to_dict()
-        if task_description_fragment.lower() in data.get("description", "").lower():
-            doc.reference.update({"status": "done"})
-            return f"Task marked as done: {data.get('description')}"
+    # Query pending tasks directly here instead of calling get_pending_tasks
+    # to avoid updating any cached "last_listed_tasks" used for numeric indices.
+    pending_tasks_query = tasks_ref.where(
+        filter=FieldFilter("status", "==", "pending")
+    ).order_by("created_at")
 
-    return f"No pending task found matching '{task_description_fragment}'."
+    pending_tasks = []
+    for idx, doc in enumerate(pending_tasks_query.stream(), start=1):
+        data = doc.to_dict() or {}
+        pending_tasks.append({
+            "id": doc.id,
+            "description": data.get("description", ""),
+            "index": idx,
+        })
+    # Case 1: "done" or "mark my one task done" with a single pending task
+    if not query or query.lower() == "mark my one task done":
+        if len(pending_tasks) == 1:
+            task_to_complete = pending_tasks[0]
+            tasks_ref.document(task_to_complete["id"]).update({"status": "done"})
+            return f"Task marked as done: {task_to_complete['description']}"
+        elif len(pending_tasks) > 1:
+            return "You have multiple tasks. Please specify which one to complete (e.g., 'done #1' or 'done <keyword>')."
+        else:
+            return "No pending tasks to complete."
+
+    # Case 2: "done #1" - by index
+    if query.startswith("#"):
+        try:
+            index = int(query[1:]) - 1 # 1-based to 0-based
+            user_doc = user_ref.get()
+            if user_doc.exists:
+                last_listed_tasks = user_doc.to_dict().get("last_listed_tasks")
+                if last_listed_tasks and 0 <= index < len(last_listed_tasks):
+                    task_id = last_listed_tasks[index]
+                    task_doc = tasks_ref.document(task_id).get()
+                    if task_doc.exists:
+                        description = task_doc.to_dict().get("description")
+                        tasks_ref.document(task_id).update({"status": "done"})
+                        return f"Task marked as done: {description}"
+                    else:
+                        return "That task number is no longer valid."
+            return "Please 'list' tasks first to use numbered completion."
+        except (ValueError, IndexError):
+            return "Invalid task number."
+
+    # Case 3: Fuzzy matching by description fragment
+    matches = [
+        task for task in pending_tasks
+        if query.lower() in task.get("description", "").lower()
+    ]
+
+    if len(matches) == 1:
+        match = matches[0]
+        tasks_ref.document(match["id"]).update({"status": "done"})
+        return f"Task marked as done: {match['description']}"
+    elif len(matches) > 1:
+        options = "\n".join([f"#{t['index']} - {t['description']}" for t in matches])
+        return f"Ambiguous query. Which task did you mean?\n{options}"
+    else:
+        return f"No pending task found matching '{query}'."
 
 # Map of tool names to functions for easy execution
 TOOL_MAP = {
@@ -130,14 +207,14 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "complete_task",
-        "description": "Mark a task as completed by matching a part of its description.",
+        "description": "Mark a task as completed by its index (e.g., '#1'), a unique phrase from its description, or by saying 'done' if only one task is pending.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "user_id": {"type": "STRING", "description": "The Telegram user ID"},
-                "task_description_fragment": {"type": "STRING", "description": "A unique phrase from the task description to identify it"}
+                "query": {"type": "STRING", "description": "The index, phrase, or empty string to identify the task"}
             },
-            "required": ["user_id", "task_description_fragment"]
+            "required": ["user_id", "query"]
         }
     }
 ]
