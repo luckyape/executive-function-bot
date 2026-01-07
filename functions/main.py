@@ -87,10 +87,18 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             data = req.get_json()
             update = Update.de_json(data, bot)
         except json.JSONDecodeError as e:
-            logger.error(f"JSON Decode Error: {e}")
-            raise TelegramWebhookError("Invalid JSON received.")
+            # Never raise here; Telegram retries on non-200.
+            # Also do NOT log raw request body (can contain user content / sensitive info).
+            logger.warning(f"Invalid JSON received: {e}")
+            return https_fn.Response("ok", status=200)
 
-        if not update or not update.message:
+        except Exception as e:
+            # Any parsing failure should still return 200 to avoid Telegram retry storms.
+            logger.exception(f"Failed to parse Telegram update: {e}")
+            return https_fn.Response("ok", status=200)
+
+        if not update or not getattr(update, "message", None):
+            return https_fn.Response("ok", status=200)
             return https_fn.Response("ok", status=200)
 
         # From here, we can rely on the TelegramWebhookError handler.
