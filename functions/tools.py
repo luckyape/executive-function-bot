@@ -84,7 +84,7 @@ def complete_task(user_id: str, query: str) -> str:
     pending_tasks = get_pending_tasks(user_id) # This already orders them
 
     # Case 1: "done" or "mark my one task done" with a single pending task
-    if not query or query.lower() in ["done", "mark my one task done"]:
+    if not query or query.lower() == "mark my one task done":
         if len(pending_tasks) == 1:
             task_to_complete = pending_tasks[0]
             tasks_ref.document(task_to_complete["id"]).update({"status": "done"})
