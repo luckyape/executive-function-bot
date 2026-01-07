@@ -4,7 +4,7 @@ import logging
 import asyncio
 from firebase_functions import https_fn, scheduler_fn
 from telegram import Update, Bot
-from agent import Agent
+from agent import Agent, GeminiRateLimitError
 from firestore_client import get_db
 from config import get_config, is_safe_mode
 from telegram import send_message_safe
@@ -104,9 +104,11 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
 
                 # Process with Agent
                 try:
-                    # TODO: Implement timeout logic if needed, but Cloud Functions has its own timeout.
                     response_text = agent.generate_response_with_tools(str(user_id), text)
                     asyncio.run(send_message_safe(bot, chat_id, response_text))
+                except GeminiRateLimitError:
+                    asyncio.run(send_message_safe(bot, chat_id, "I'm experiencing high demand. Switching to Safe Mode for this request."))
+                    asyncio.run(handle_safe_mode(user_id, chat_id, text, bot))
                 except Exception as e:
                     logger.error(f"Agent Error: {e}")
                     asyncio.run(send_message_safe(bot, chat_id, "I encountered an internal error."))

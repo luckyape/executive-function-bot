@@ -8,6 +8,12 @@ from config import get_config
 
 logger = logging.getLogger(__name__)
 
+
+class GeminiRateLimitError(Exception):
+    """Custom exception for Gemini API rate limiting."""
+    pass
+
+
 class Agent:
     def __init__(self):
         # Use get_config to allow for 'gemini.key' or 'GEMINI_API_KEY'
@@ -78,7 +84,7 @@ class Agent:
 
         except exceptions.ResourceExhausted as e:
             logger.warning(f"Gemini 429/ResourceExhausted: {e}")
-            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
+            raise GeminiRateLimitError(e)
         except Exception as e:
             logger.error(f"Gemini General Exception: {e}", exc_info=True)
             return "I encountered a temporary issue with my brain. Please try again."
