@@ -3,7 +3,7 @@ import json
 import logging
 import asyncio
 from firebase_functions import https_fn, scheduler_fn
-import telegram
+from telegram import Update, Bot
 from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
@@ -15,77 +15,76 @@ logger = logging.getLogger(__name__)
 # Initialize Agent
 agent = Agent()
 
-def get_telegram_token():
-    """
-    Retrieves the Telegram token from environment variables.
-
-    Priority:
-    1. TELEGRAM_TOKEN environment variable.
-    2. CLOUD_RUNTIME_CONFIG environment variable (for backward compatibility).
-    3. Fallback to the original get_config from V1.
-    """
-    # 1. Try the explicit environment variable
-    token = os.environ.get('TELEGRAM_TOKEN')
-    if token:
-        return token
-
-    # 2. Fallback for backward compatibility with `firebase functions:config:set`
-    runtime_config_str = os.environ.get('CLOUD_RUNTIME_CONFIG')
-    if runtime_config_str:
-        try:
-            runtime_config = json.loads(runtime_config_str)
-            token = runtime_config.get('firebase', {}).get('config', {}).get('telegram', {}).get('token')
-            if token:
-                return token
-        except (json.JSONDecodeError, AttributeError):
-            logger.error("Failed to parse CLOUD_RUNTIME_CONFIG")
-
-    # 3. As a final fallback, use the get_config function from config.py for the old V1 logic
-    token = get_config("TELEGRAM_TOKEN")
-    if token:
-        return token
-
-    return None
+# Initialize Bot (Lazy load or global if safe)
+# We use get_config to be robust
+TELEGRAM_TOKEN = get_config("TELEGRAM_TOKEN")
+bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN else None
 
 @https_fn.on_request()
 def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     """
-    Firebase Function to handle Telegram webhook requests (Hello Bot).
+    HTTP Cloud Function for Telegram Webhook.
     """
-    # Health check for GET requests or ?ping=1
-    if req.method == 'GET' or 'ping' in req.args:
+    # 1. Health Check & Method validation
+    if req.method == "GET" or req.args.get("ping"):
         return https_fn.Response("ok", status=200)
 
-    # Always return 200 to Telegram, even on errors
+    if req.method != "POST":
+        return https_fn.Response("Method not allowed", status=405)
+
     try:
-        TELEGRAM_TOKEN = get_telegram_token()
-        if not TELEGRAM_TOKEN:
+        # 2. Config Validation
+        if not bot:
             logger.error("Telegram token not set")
-            return https_fn.Response("ok", status=200)
+            # Return 200 to prevent Telegram retry loop on config error
+            return https_fn.Response("Configuration Error: Token missing", status=200)
 
-        bot = telegram.Bot(token=TELEGRAM_TOKEN)
+        # 3. Parse Update
+        try:
+            data = req.get_json()
+            update = Update.de_json(data, bot)
+        except Exception as e:
+            logger.error(f"Failed to parse update: {e}")
+            return https_fn.Response("Parse Error", status=200)
 
-        update_data = req.get_data(as_text=True)
-        update = telegram.Update.de_json(json.loads(update_data), bot)
+        if not update:
+            return https_fn.Response("OK (No update)", status=200)
 
-        chat_id = None
-        text = None
-
+        # 4. Handle Message
         if update.message and update.message.text:
             chat_id = update.message.chat_id
+            user_id = update.message.from_user.id
             text = update.message.text
-        elif update.edited_message and update.edited_message.text:
-            chat_id = update.edited_message.chat_id
-            text = update.edited_message.text
 
-        if chat_id and text:
-            asyncio.run(bot.send_message(chat_id=chat_id, text="Hello. I am alive."))
+            # Check Safe Mode
+            if is_safe_mode():
+                logger.info(f"SAFE MODE: Echoing '{text}'")
+                asyncio.run(bot.send_message(chat_id=chat_id, text=f"[SAFE MODE] Echo: {text}"))
+                return https_fn.Response("OK (Safe Mode)", status=200)
+
+            # Process with Agent
+            try:
+                response_text = agent.generate_response_with_tools(str(user_id), text)
+                asyncio.run(bot.send_message(chat_id=chat_id, text=response_text))
+            except Exception as e:
+                logger.error(f"Agent/Telegram Error: {e}")
+                # Try to send error to user if possible, or just log
+                try:
+                    asyncio.run(bot.send_message(chat_id=chat_id, text="I encountered an internal error. Please try again later."))
+                except:
+                    pass
+
+        # Handle other updates (non-text, edited, etc)
+        elif update.edited_message:
+            # Ignore or handle edits
+            pass
+
+        return https_fn.Response("OK", status=200)
 
     except Exception as e:
-        logger.error(f"Unhandled error in webhook: {e}", exc_info=True)
-
-    return https_fn.Response("ok", status=200)
-
+        # Catch-all to prevent 500
+        logger.error(f"Unhandled error in webhook: {e}")
+        return https_fn.Response("Internal Server Error (Logged)", status=200)
 
 @scheduler_fn.on_schedule(schedule="every day 08:00")
 def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
@@ -93,15 +92,12 @@ def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
     Scheduled Cloud Function for Morning Push.
     """
     logger.info("Starting morning briefing...")
-
-    TELEGRAM_TOKEN = get_telegram_token()
-    if not TELEGRAM_TOKEN:
-        logger.error("Telegram token not set for morning briefing")
+    if not bot:
+        logger.error("Telegram token not set")
         return
 
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-
     try:
+        # 1. Fetch all users
         db = get_db()
         users_ref = db.collection("users")
         docs = users_ref.stream()
@@ -112,10 +108,12 @@ def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
             except Exception as e:
                 logger.error(f"Failed to send to {user_id}: {e}")
 
+        # Process each user
         count = 0
         for doc in docs:
             user_id = doc.id
 
+            # Skip if safe mode
             if is_safe_mode():
                 logger.info(f"SAFE MODE: Skipping briefing for {user_id}")
                 continue
