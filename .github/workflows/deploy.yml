@@ -25,12 +25,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      # FIX: Run directly in Root (No 'cd functions')
-      - name: Create venv and Install Dependencies
+      - name: Install and Deploy
         run: |
+          # 1. Create and Activate venv
           python -m venv venv
           source venv/bin/activate
+          
+          # 2. Install Dependencies
           pip install -r requirements.txt
-
-      - name: Deploy to Firebase
-        run: npx firebase-tools deploy --project 218883677076 --only functions --force
+          
+          # 3. Deploy (Now it works because venv is still active)
+          npx firebase-tools deploy --project 218883677076 --only functions --force
