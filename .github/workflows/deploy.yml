@@ -4,7 +4,7 @@ on: [push, workflow_dispatch]
 
 permissions: 
   contents: read
-  id-token: write
+  id-token:  write
 
 jobs: 
   deploy:
@@ -13,15 +13,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - name:  Authenticate to Google Cloud
+        uses:  google-github-actions/auth@v2
         with:
           workload_identity_provider: '${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}'
-          service_account: '${{ secrets.SERVICE_ACCOUNT_EMAIL }}'
+          service_account: '${{ secrets. SERVICE_ACCOUNT_EMAIL }}'
 
       - name: Setup Python
         uses: actions/setup-python@v4
-        with:
+        with: 
           python-version: '3.11'
 
       - name: Setup Functions Environment
@@ -29,7 +29,9 @@ jobs:
           cd functions
           python -m venv venv
           source venv/bin/activate
+          pip install --upgrade pip
           pip install -r requirements.txt
+          pip list | grep firebase-functions  # Verify installation
 
       - name: Deploy to Firebase
         run: npx firebase-tools deploy --project 218883677076 --only functions --force
