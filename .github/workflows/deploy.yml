@@ -7,34 +7,30 @@ permissions:
   id-token: write
 
 jobs: 
-  deploy:  
+  deploy:   
     runs-on:  ubuntu-latest
     steps: 
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name:  Authenticate to Google Cloud
-        uses:  google-github-actions/auth@v2
+        uses: google-github-actions/auth@v2
         with: 
-          workload_identity_provider:  '${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}'
+          workload_identity_provider: '${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}'
           service_account: '${{ secrets.SERVICE_ACCOUNT_EMAIL }}'
 
       - name: Setup Python
         uses: actions/setup-python@v4
         with:   
-          python-version: '3.11'
+          python-version:  '3.11'
 
-      - name: Install Dependencies
-        working-directory: ./functions
+      - name: Install Dependencies and Deploy
         run: |
+          cd functions
           python -m venv venv
           source venv/bin/activate
           pip install -r requirements.txt
-          python -c "import firebase_functions; print(firebase_functions.__file__)"
-
-      - name: Deploy to Firebase
-        env:
-          VIRTUAL_ENV: ${{ github.workspace }}/functions/venv
-        run: |
-          export PATH="${VIRTUAL_ENV}/bin:$PATH"
+          cd ..
           npx firebase-tools deploy --project 218883677076 --only functions --force
+        env:
+          CLOUDSDK_PYTHON: ${{ github.workspace }}/functions/venv/bin/python
