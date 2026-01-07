@@ -13,6 +13,9 @@ from telegram import send_message_safe
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Constants
+BODY_PREVIEW_MAX_LENGTH = 100
+
 # Initialize Agent
 agent = Agent()
 
@@ -82,11 +85,14 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             body_preview = "<no data>"
             if raw_body is not None:
                 try:
-                    body_str = raw_body.decode("utf-8") if isinstance(raw_body, (bytes, bytearray)) else repr(raw_body)
-                    body_preview = body_str[:100]
+                    if isinstance(raw_body, (bytes, bytearray)):
+                        body_str = raw_body.decode("utf-8")
+                    else:
+                        body_str = repr(raw_body)
+                    body_preview = body_str[:BODY_PREVIEW_MAX_LENGTH]
                 except (UnicodeDecodeError, AttributeError, TypeError):
                     body_preview = "<unavailable>"
-            logger.error(f"Failed to decode JSON: {e} - Body preview (first 100 chars): {body_preview}")
+            logger.error(f"Failed to decode JSON: {e} - Body preview (first {BODY_PREVIEW_MAX_LENGTH} chars): {body_preview}")
             return https_fn.Response("ok", status=200) # Must return 200 to Telegram
         except Exception as e:
             logger.error(f"Failed to parse update: {e}")
