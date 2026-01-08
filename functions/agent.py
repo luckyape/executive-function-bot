@@ -60,6 +60,13 @@ class Agent:
         my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
 
         try:
+            from .context_builder import build_context
+            context = build_context(user_id)
+
+            # Construct the message with context
+            context_prefix = f"{context}\n\n" if context else ""
+            message_with_context = f"{context_prefix}User ID: {user_id}\nMessage: {message_text}"
+
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
@@ -68,7 +75,7 @@ class Agent:
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
             )
-            response = chat.send_message(f"User ID: {user_id}\nMessage: {message_text}")
+            response = chat.send_message(message_with_context)
             return response.text
 
         except exceptions.ResourceExhausted as e:
