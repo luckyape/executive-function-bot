@@ -73,6 +73,13 @@ class Agent:
             enabled_tools.append(archive)
 
         try:
+            from .context_builder import build_context
+            context = build_context(user_id)
+
+            # Construct the message with context
+            context_prefix = f"{context}\n\n" if context else ""
+            message_with_context = f"{context_prefix}User ID: {user_id}\nMessage: {message_text}"
+
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
@@ -81,13 +88,22 @@ class Agent:
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
             )
+            # Build the LLM input as a single string (Gemini expects a text prompt here)
+            parts = [f"User ID: {user_id}"]
 
-            # Construct the prompt
-            prompt = f"User ID: {user_id}\n"
-            if intent != "chat":
-                prompt += f"Intent: {intent}\n"
-            prompt += f"Message: {message_text}"
+            # Only include intent when it's not plain chat (keeps normal chat clean)
+            if intent and intent != "chat":
+                parts.append(f"Intent: {intent}")
 
+            # If you already computed context (manifesto/tasks/project card), include it explicitly
+            # message_with_context should already contain "Context:\n..." + user message, etc.
+            # If not, just use message_text.
+            if message_with_context:
+                parts.append(message_with_context)
+            else:
+                parts.append(f"Message: {message_text}")
+
+            prompt = "\n".join(parts)
             response = chat.send_message(prompt)
             return response.text
 

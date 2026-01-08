@@ -9,6 +9,7 @@ from firestore_client import get_db
 from config import get_config, is_safe_mode
 from telegram_utils import send_message_safe
 from router import route_update
+from commands.help import get_help_text
 
 # Logger
 logging.basicConfig(level=logging.INFO)
@@ -133,9 +134,25 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         user_id = update.message.from_user.id
         text = update.message.text
 
-        # 5) /start
+        # 5) /start, /scratch
         if text == "/start":
             _send(chat_id, "Welcome! Tell me your Manifesto (Goal).")
+            return https_fn.Response("ok", status=200)
+
+        if text.startswith("/scratch"):
+            from commands.scratch import handle_scratch_command
+            handle_scratch_command(update.message.to_dict())
+        # Handle /help
+        if text == "/help":
+            _send(chat_id, get_help_text())
+            return https_fn.Response("ok", status=200)
+
+        # Handle /memory (supports "/memory ..." subcommands)
+        if text.startswith("/memory"):
+            from commands.memory import handle_memory_command
+            response_text = handle_memory_command(str(user_id), text)
+            _send(chat_id, response_text)
+            return https_fn.Response("ok", status=200)
             return https_fn.Response("ok", status=200)
 
         # 6) Safe mode forced
