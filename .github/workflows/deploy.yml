@@ -28,7 +28,23 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.FIREBASE_PROJECT_ID }}
-
+      - name: Debug auth target
+        run: |
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
+          python - <<'PY'
+          import json, os, re
+          p = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+          print("creds_file:", p)
+          with open(p) as f:
+            j = json.load(f)
+          url = j.get("service_account_impersonation_url","")
+          print("impersonation_url:", url)
+          m = re.search(r"/serviceAccounts/([^:]+@[^/]+)", url)
+          print("IMPERSONATED_SA:", m.group(1) if m else "")
+          print("audience:", j.get("audience",""))
+          PY
+          echo "WIP_SECRET=${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}"
+          echo "SA_SECRET=${{ secrets.SERVICE_ACCOUNT_EMAIL }}"
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
