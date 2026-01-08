@@ -55,20 +55,52 @@ class Agent:
             )
         ]
 
-        # Current implementation: pass callables directly
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
-        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
+        # Whitelisted tools for chat interaction
+        from tools import set_manifesto, add_task
+        chat_tools = [set_manifesto, add_task]
+        whitelisted_tool_map = {tool.__name__: tool for tool in chat_tools}
+        logger = logging.getLogger(__name__)
 
         try:
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
-                    tools=my_tools,  # if this ever breaks, switch to tools=_tools_config
+                    tools=chat_tools,
                     system_instruction=self.system_instruction,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
             )
             response = chat.send_message(f"User ID: {user_id}\nMessage: {message_text}")
+
+            # Manual tool call dispatch with validation
+            function_calls = [part.function_call for part in response.parts if part.function_call]
+
+            if function_calls:
+                tool_response_parts = []
+                for function_call in function_calls:
+                    tool_name = function_call.name
+                    tool_func = whitelisted_tool_map.get(tool_name)
+
+                    if not tool_func:
+                        logger.warning(f"Model attempted to call non-whitelisted tool: {tool_name}")
+                        tool_response_parts.append(types.Part(
+                            tool_response=types.ToolResponse(
+                                name=tool_name,
+                                response={"error": f"Tool '{tool_name}' is not available."}
+                            )
+                        ))
+                    else:
+                        args = type(function_call.args).to_dict(function_call.args)
+                        result = tool_func(**args)
+                        tool_response_parts.append(types.Part(
+                            tool_response=types.ToolResponse(
+                                name=tool_name,
+                                response={"result": result}
+                            )
+                        ))
+
+                # Send all tool results back to the model in a single message
+                response = chat.send_message(types.Content(parts=tool_response_parts))
+
             return response.text
 
         except exceptions.ResourceExhausted as e:
