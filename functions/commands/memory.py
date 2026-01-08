@@ -1,4 +1,4 @@
-from ..db import user_settings_repo
+from db import user_settings_repo
 
 VALID_MODES = ["off", "hot", "projects", "strict"]
 

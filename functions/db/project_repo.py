@@ -2,7 +2,7 @@ import datetime
 from typing import List, Dict, Any, Optional
 
 from google.cloud import firestore
-from ..firestore_client import get_db
+from firestore_client import get_db
 
 
 def create_project(user_id: str, name: str) -> Dict[str, Any]:

@@ -1,5 +1,5 @@
 from typing import Optional
-from ..firestore_client import get_db
+from firestore_client import get_db
 
 DEFAULT_MEMORY_MODE = "projects"
 

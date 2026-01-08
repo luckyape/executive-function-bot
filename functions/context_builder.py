@@ -1,6 +1,6 @@
 import logging
-from .tools import get_manifesto, get_pending_tasks
-from .db import project_repo, user_settings_repo
+from tools import get_manifesto, get_pending_tasks
+from db import project_repo, user_settings_repo
 
 logger = logging.getLogger(__name__)
 

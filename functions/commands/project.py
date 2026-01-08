@@ -1,4 +1,4 @@
-from ..db import project_repo
+from db import project_repo
 
 
 def handle_project_command(user_id: str, command_text: str) -> str:
