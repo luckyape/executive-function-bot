@@ -7,7 +7,8 @@ from telegram import Update, Bot
 from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
-from telegram_utils import send_message_safe  # local helper (NOT the telegram package)
+from telegram_utils import send_message_safe
+from router import route_update
 from commands.help import get_help_text
 
 # Logger
@@ -159,15 +160,31 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             handle_safe_mode(user_id, chat_id, text)
             return https_fn.Response("ok", status=200)
 
-        # 7) Normal mode: agent
+        # 7) Routing
+        route = route_update(text)
+        intent = route.get("intent")
+        capabilities = route.get("capabilities", [])
+        payload = route.get("payload")
+
+        # 8) Unknown commands (for now, just a message)
+        if intent == "unknown_command":
+            _send(chat_id, "I don't recognize that command. Try /recall, /scratch, or /archive.")
+            return https_fn.Response("ok", status=200)
+
+        # 9) Normal mode: agent
         try:
-            response_text = agent.generate_response_with_tools(str(user_id), text)
+            response_text = agent.generate_response_with_tools(
+                user_id=str(user_id),
+                message_text=payload,
+                intent=intent,
+                capabilities=capabilities,
+            )
         except Exception as e:
             logger.error(f"Agent error: {e}", exc_info=True)
             handle_safe_mode(user_id, chat_id, text, from_fallback=True)
             return https_fn.Response("ok", status=200)
 
-        # 8) Rate-limit fallback (string contract)
+        # 10) Rate-limit fallback (string contract)
         if isinstance(response_text, str) and response_text.startswith("LLM is rate-limited"):
             handle_safe_mode(user_id, chat_id, text, from_fallback=True)
             return https_fn.Response("ok", status=200)

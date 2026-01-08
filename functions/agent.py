@@ -43,21 +43,34 @@ class Agent:
 
         return self.client
 
-    def generate_response_with_tools(self, user_id: str, message_text: str) -> str:
+    def generate_response_with_tools(
+        self, user_id: str, message_text: str, intent: str, capabilities: list
+    ) -> str:
         client = self._get_client()
         if not client:
             return "LLM is unavailable right now. I can still add/list/complete tasks."
 
-        # Tool declarations (kept for future use / compatibility)
-        _tools_config = [
-            types.Tool(
-                function_declarations=[types.FunctionDeclaration(**td) for td in TOOL_DEFINITIONS]
-            )
+        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+
+        # Base tools for all intents
+        enabled_tools = [
+            get_manifesto,
+            set_manifesto,
+            add_task,
+            get_pending_tasks,
+            complete_task,
         ]
 
-        # Current implementation: pass callables directly
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
-        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
+        # Gated tools
+        if "recall" in capabilities:
+            from tools import recall
+            enabled_tools.append(recall)
+        if "scratch" in capabilities:
+            from tools import scratch
+            enabled_tools.append(scratch)
+        if "archive" in capabilities:
+            from tools import archive
+            enabled_tools.append(archive)
 
         try:
             from .context_builder import build_context
@@ -70,12 +83,28 @@ class Agent:
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
-                    tools=my_tools,  # if this ever breaks, switch to tools=_tools_config
+                    tools=enabled_tools,
                     system_instruction=self.system_instruction,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
             )
-            response = chat.send_message(message_with_context)
+            # Build the LLM input as a single string (Gemini expects a text prompt here)
+            parts = [f"User ID: {user_id}"]
+
+            # Only include intent when it's not plain chat (keeps normal chat clean)
+            if intent and intent != "chat":
+                parts.append(f"Intent: {intent}")
+
+            # If you already computed context (manifesto/tasks/project card), include it explicitly
+            # message_with_context should already contain "Context:\n..." + user message, etc.
+            # If not, just use message_text.
+            if message_with_context:
+                parts.append(message_with_context)
+            else:
+                parts.append(f"Message: {message_text}")
+
+            prompt = "\n".join(parts)
+            response = chat.send_message(prompt)
             return response.text
 
         except exceptions.ResourceExhausted as e:
