@@ -41,32 +41,33 @@ def add_task(user_id: str, description: str) -> str:
     return f"Task added: {description}"
 
 def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
-    """
-    Returns a list of incomplete tasks, indexed numerically.
-    It also saves the task IDs of this list for future reference.
-    """
+    """Returns a list of incomplete tasks and saves their IDs for quick actions."""
     db = get_db()
     user_ref = db.collection("users").document(str(user_id))
     tasks_ref = user_ref.collection("tasks")
+<<<<<<< HEAD
 
     # Query pending tasks, ordering by creation date for consistent numbering
     query = tasks_ref.where(
         filter=FieldFilter("status", "==", "pending")
     ).order_by("created_at").stream()
+=======
+    # Order by creation time to ensure consistent numbering for the '#N' feature
+    query = tasks_ref.where(filter=FieldFilter("status", "==", "pending")).order_by("created_at").stream()
+>>>>>>> origin/executive-function-coach-bot-6741568839755870085
 
     tasks = []
     task_ids = []
-    for i, doc in enumerate(query):
+    for doc in query:
         data = doc.to_dict()
         data["id"] = doc.id
-        data["index"] = i + 1  # 1-based index for user display
         task_ids.append(doc.id)
-
         # Convert timestamp to string for LLM readability
         if "created_at" in data and data["created_at"]:
             data["created_at"] = str(data["created_at"])
         tasks.append(data)
 
+<<<<<<< HEAD
     # Save the list of task IDs for the 'done #' command with a timestamp
     user_ref.set({
         "last_listed_tasks": task_ids,
@@ -76,32 +77,56 @@ def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
     return tasks
 
 def complete_task(user_id: str, query: str = "") -> str:
+=======
+    # Save the IDs of the listed tasks for future reference by '#N' completion
+    user_ref.set({"last_listed_tasks": task_ids}, merge=True)
+
+    return tasks
+
+def complete_task(user_id: str, query: Optional[str] = None) -> str:
+>>>>>>> origin/executive-function-coach-bot-6741568839755870085
     """
-    Marks a task as done based on a query which can be an index,
-    a description fragment, or empty (for single-task completion).
+    Marks a task as done. Handles multiple scenarios:
+    - If query is empty/None/'done' and there's only one task, it's completed.
+    - If query is '#N', completes the Nth task from the last 'list' command.
+    - Otherwise, fuzzy matches against task descriptions.
     """
     db = get_db()
     user_ref = db.collection("users").document(str(user_id))
     tasks_ref = user_ref.collection("tasks")
 
+<<<<<<< HEAD
     pending_tasks = get_pending_tasks(user_id) # This already orders them
 
     # Case 1: "done" or "mark my one task done" with a single pending task
     if not query or query.lower() in ["done", "mark my one task done"]:
+=======
+    pending_tasks_query = tasks_ref.where(filter=FieldFilter("status", "==", "pending")).order_by("created_at")
+    pending_tasks = list(pending_tasks_query.stream())
+
+    if not pending_tasks:
+        return "You have no pending tasks to complete."
+
+    # Normalize query for robustness, but keep original for messages
+    original_query_str = query if query is not None else ""
+    clean_query = query.strip().lower() if query else ""
+    if clean_query.startswith("done"):
+        clean_query = clean_query.removeprefix("done").strip()
+
+    if not clean_query:
+>>>>>>> origin/executive-function-coach-bot-6741568839755870085
         if len(pending_tasks) == 1:
             task_to_complete = pending_tasks[0]
-            tasks_ref.document(task_to_complete["id"]).update({"status": "done"})
-            return f"Task marked as done: {task_to_complete['description']}"
-        elif len(pending_tasks) > 1:
-            return "You have multiple tasks. Please specify which one to complete (e.g., 'done #1' or 'done <keyword>')."
+            task_to_complete.reference.update({"status": "done"})
+            return f"Task marked as done: {task_to_complete.to_dict().get('description')}"
         else:
-            return "No pending tasks to complete."
+            return "You have multiple pending tasks. Please specify which one to complete (e.g., 'done #1' or 'done <task name>')."
 
-    # Case 2: "done #1" - by index
-    if query.startswith("#"):
+    if clean_query.startswith("#"):
         try:
-            index = int(query[1:]) - 1 # 1-based to 0-based
+            index = int(clean_query[1:]) - 1
             user_doc = user_ref.get()
+<<<<<<< HEAD
             if user_doc.exists:
                 user_data = user_doc.to_dict()
                 last_listed_tasks = user_data.get("last_listed_tasks")
@@ -128,24 +153,37 @@ def complete_task(user_id: str, query: str = "") -> str:
                     else:
                         return "That task number is no longer valid."
             return "Please 'list' tasks first to use numbered completion."
+=======
+            if not user_doc.exists: return "Cannot find user data. Please 'list' tasks first."
+            last_listed_ids = user_doc.to_dict().get("last_listed_tasks")
+            if not last_listed_ids: return "You need to 'list' tasks before using the '#' shortcut."
+            if 0 <= index < len(last_listed_ids):
+                task_id = last_listed_ids[index]
+                task_ref = tasks_ref.document(task_id)
+                task_doc = task_ref.get()
+                if task_doc.exists and task_doc.to_dict().get('status') == 'pending':
+                    task_ref.update({"status": "done"})
+                    return f"Task marked as done: {task_doc.to_dict().get('description')}"
+                else:
+                    return f"Task #{index+1} from your last list is already completed or cannot be found."
+            else:
+                return f"Invalid task number: #{index+1}. You have {len(last_listed_ids)} tasks in your last list."
+>>>>>>> origin/executive-function-coach-bot-6741568839755870085
         except (ValueError, IndexError):
-            return "Invalid task number."
+            return "Invalid task number format. Please use '#1', '#2', etc."
 
-    # Case 3: Fuzzy matching by description fragment
-    matches = [
-        task for task in pending_tasks
-        if query.lower() in task.get("description", "").lower()
-    ]
+    # Last resort: fuzzy match on the cleaned query
+    matched_tasks = [p for p in pending_tasks if clean_query in p.to_dict().get("description", "").lower()]
 
-    if len(matches) == 1:
-        match = matches[0]
-        tasks_ref.document(match["id"]).update({"status": "done"})
-        return f"Task marked as done: {match['description']}"
-    elif len(matches) > 1:
-        options = "\n".join([f"#{t['index']} - {t['description']}" for t in matches])
-        return f"Ambiguous query. Which task did you mean?\n{options}"
+    if len(matched_tasks) == 1:
+        task_to_complete = matched_tasks[0]
+        task_to_complete.reference.update({"status": "done"})
+        return f"Task marked as done: {task_to_complete.to_dict().get('description')}"
+    elif len(matched_tasks) > 1:
+        descriptions = [f" - {d.to_dict().get('description')}" for d in matched_tasks]
+        return f"Multiple tasks match your query '{original_query_str}'. Please be more specific:\n" + "\n".join(descriptions)
     else:
-        return f"No pending task found matching '{query}'."
+        return f"No pending task found matching '{original_query_str}'."
 
 # Map of tool names to functions for easy execution
 TOOL_MAP = {
@@ -206,12 +244,16 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "complete_task",
-        "description": "Mark a task as completed by its index (e.g., '#1'), a unique phrase from its description, or by saying 'done' if only one task is pending.",
+        "description": "Mark a task as completed. Can use a description fragment, '#N' from the last list, or complete the sole task if no query is provided.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "user_id": {"type": "STRING", "description": "The Telegram user ID"},
+<<<<<<< HEAD
                 "query": {"type": "STRING", "description": "The index, phrase, or empty string to identify the task. Can be empty for single-task completion."}
+=======
+                "query": {"type": "STRING", "description": "The task identifier: a description fragment, '#N', or empty to complete the sole task."}
+>>>>>>> origin/executive-function-coach-bot-6741568839755870085
             },
             "required": ["user_id"]
         }
