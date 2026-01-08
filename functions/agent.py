@@ -3,8 +3,8 @@ from google import genai
 from google.genai import types
 from google.api_core import exceptions
 
-from .tools import get_manifesto, get_pending_tasks
-from .config import get_config
+from tools import get_manifesto, get_pending_tasks
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
