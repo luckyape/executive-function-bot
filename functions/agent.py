@@ -5,6 +5,7 @@ from google.api_core import exceptions
 
 from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
 from config import get_config
+from context_builder import build_context
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ class Agent:
         my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
 
         try:
+            context = build_context(user_id)
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
@@ -68,7 +70,7 @@ class Agent:
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
             )
-            response = chat.send_message(f"User ID: {user_id}\nMessage: {message_text}")
+            response = chat.send_message(f"{context}\nMessage: {message_text}")
             return response.text
 
         except exceptions.ResourceExhausted as e:
@@ -88,15 +90,10 @@ class Agent:
         if not client:
             return ""
 
-        manifesto = get_manifesto(str(user_id))
-        pending_tasks = get_pending_tasks(str(user_id))
-        task_list = "\n".join([f"- {t['description']}" for t in pending_tasks])
-
+        context = build_context(user_id)
         prompt = (
-            f"User ID: {user_id}\n"
-            f"Manifesto: {manifesto}\n"
-            f"Pending Tasks:\n{task_list}\n\n"
-            "Based on these tasks and this goal, write a 1-sentence 'Kick in the ass' message."
+            f"{context}\n\n"
+            "Based on this context, write a 1-sentence 'Kick in the ass' message."
         )
 
         try:
