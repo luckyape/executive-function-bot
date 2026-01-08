@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import logging
+
 from google import genai
 from google.genai import types
 from google.api_core import exceptions
 
-from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
+from tools import get_manifesto, get_pending_tasks
 from config import get_config
+from context_builder import build_context
 
 logger = logging.getLogger(__name__)
 
@@ -43,37 +47,91 @@ class Agent:
 
         return self.client
 
-    def generate_response_with_tools(self, user_id: str, message_text: str) -> str:
+    def generate_response_with_tools(
+        self,
+        user_id: str,
+        message_text: str,
+        intent: str | list[str] | None = "chat",
+        capabilities: list[str] | None = None,
+    ) -> str:
+        """
+        Backward-compatible parameter handling:
+        - New style: (user_id, message_text, intent="chat", capabilities=[...])
+        - Old style: (user_id, message_text, capabilities=[...])  -> detected if intent is a list
+        """
+        # Back-compat: third positional might be capabilities (list[str]) from older call sites
+        if isinstance(intent, list):
+            capabilities = intent
+            intent = "chat"
+
+        if intent is None:
+            intent = "chat"
+        if capabilities is None:
+            capabilities = []
+
         client = self._get_client()
         if not client:
             return "LLM is unavailable right now. I can still add/list/complete tasks."
 
-        # Tool declarations (kept for future use / compatibility)
-        _tools_config = [
-            types.Tool(
-                function_declarations=[types.FunctionDeclaration(**td) for td in TOOL_DEFINITIONS]
-            )
+        # Import tool functions (keep local to reduce import/cycle risk)
+        from tools import set_manifesto, add_task, complete_task
+
+        # Base tools for all intents
+        enabled_tools = [
+            get_manifesto,
+            set_manifesto,
+            add_task,
+            get_pending_tasks,
+            complete_task,
         ]
 
-        # Current implementation: pass callables directly
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
-        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
+        # Gated tools (only enabled when capability flag is present)
+        if "recall" in capabilities:
+            from tools import recall
+            enabled_tools.append(recall)
+        if "scratch" in capabilities:
+            from tools import scratch
+            enabled_tools.append(scratch)
+        if "archive" in capabilities:
+            from tools import archive
+            enabled_tools.append(archive)
 
         try:
+            # Context is helpful but not required; fail open.
+            context = ""
+            try:
+                context = build_context(user_id) or ""
+            except Exception as e:
+                logger.warning(f"build_context failed: {e}", exc_info=True)
+                context = ""
+
+            prompt_parts: list[str] = [f"User ID: {user_id}"]
+
+            # Only include intent when it's not plain chat (keeps normal chat clean)
+            if intent and intent != "chat":
+                prompt_parts.append(f"Intent: {intent}")
+
+            if context:
+                prompt_parts.append(f"Context:\n{context}")
+
+            prompt_parts.append(f"Message: {message_text}")
+            prompt = "\n\n".join(prompt_parts)
+
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
-                    tools=my_tools,  # if this ever breaks, switch to tools=_tools_config
+                    tools=enabled_tools,
                     system_instruction=self.system_instruction,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
             )
-            response = chat.send_message(f"User ID: {user_id}\nMessage: {message_text}")
+
+            response = chat.send_message(prompt)
             return response.text
 
         except exceptions.ResourceExhausted as e:
             logger.warning(f"Gemini 429/ResourceExhausted: {e}")
-            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
+            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again shortly."
 
         except exceptions.GoogleAPICallError as e:
             logger.error(f"Gemini API Call Error: {e}", exc_info=True)
@@ -88,15 +146,16 @@ class Agent:
         if not client:
             return ""
 
-        manifesto = get_manifesto(str(user_id))
-        pending_tasks = get_pending_tasks(str(user_id))
-        task_list = "\n".join([f"- {t['description']}" for t in pending_tasks])
+        context = ""
+        try:
+            context = build_context(user_id) or ""
+        except Exception as e:
+            logger.warning(f"build_context failed (morning briefing): {e}", exc_info=True)
+            context = ""
 
         prompt = (
-            f"User ID: {user_id}\n"
-            f"Manifesto: {manifesto}\n"
-            f"Pending Tasks:\n{task_list}\n\n"
-            "Based on these tasks and this goal, write a 1-sentence 'Kick in the ass' message."
+            f"{context}\n\n"
+            "Based on this context, write a 1-sentence 'Kick in the ass' message."
         )
 
         try:
