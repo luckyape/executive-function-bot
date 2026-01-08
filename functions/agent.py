@@ -43,21 +43,23 @@ class Agent:
 
         return self.client
 
-    def generate_response_with_tools(self, user_id: str, message_text: str) -> str:
+    def generate_response_with_tools(
+        self, user_id: str, message_text: str, capabilities: list[str] | None = None
+    ) -> str:
+        if capabilities is None:
+            capabilities = []
         client = self._get_client()
         if not client:
             return "LLM is unavailable right now. I can still add/list/complete tasks."
 
-        # Tool declarations (kept for future use / compatibility)
-        _tools_config = [
-            types.Tool(
-                function_declarations=[types.FunctionDeclaration(**td) for td in TOOL_DEFINITIONS]
-            )
-        ]
+        # Standard tools available in chat
+        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
 
-        # Current implementation: pass callables directly
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task, recall
-        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task, recall]
+        # Add recall tool if capability is present
+        if "recall" in capabilities:
+            from tools import recall
+            my_tools.append(recall)
 
         try:
             chat = client.chats.create(

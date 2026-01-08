@@ -7,7 +7,8 @@ from telegram import Update, Bot
 from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
-from telegram_utils import send_message_safe  # local helper (NOT the telegram package)
+from telegram_utils import send_message_safe
+from router import route_message
 
 # Logger
 logging.basicConfig(level=logging.INFO)
@@ -144,7 +145,10 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
 
         # 7) Normal mode: agent
         try:
-            response_text = agent.generate_response_with_tools(str(user_id), text)
+            intent, capabilities, payload = route_message(text)
+            response_text = agent.generate_response_with_tools(
+                str(user_id), payload, capabilities
+            )
         except Exception as e:
             logger.error(f"Agent error: {e}", exc_info=True)
             handle_safe_mode(user_id, chat_id, text, from_fallback=True)
