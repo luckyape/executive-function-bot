@@ -1,6 +1,6 @@
 import logging
 from .db.user_settings_repo import get_memory_mode, MemoryMode
-from .tools import get_manifesto, get_pending_tasks
+from .repos import manifesto_repo, tasks_repo
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def build_context(user_id: str) -> str:
     # 'hot' memory (Manifesto) is included in HOT, PROJECTS, and STRICT modes
     if mode in [MemoryMode.HOT, MemoryMode.PROJECTS, MemoryMode.STRICT]:
         try:
-            manifesto = get_manifesto(user_id)
+            manifesto = manifesto_repo.get_manifesto_text(user_id)
             if manifesto and manifesto != "No manifesto set.":
                 context_parts.append(f"## User Manifesto:\n{manifesto}")
         except Exception as e:
@@ -34,7 +34,7 @@ def build_context(user_id: str) -> str:
     # 'projects' memory (Pending Tasks) is included in PROJECTS and STRICT modes
     if mode in [MemoryMode.PROJECTS, MemoryMode.STRICT]:
         try:
-            pending_tasks = get_pending_tasks(user_id)
+            pending_tasks = tasks_repo.get_user_pending_tasks(user_id)
             if pending_tasks:
                 task_list = "\n".join([f"- {t.get('description', 'No description')}" for t in pending_tasks])
                 context_parts.append(f"## Pending Tasks:\n{task_list}")
