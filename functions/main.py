@@ -9,6 +9,7 @@ from firestore_client import get_db
 from config import get_config, is_safe_mode
 from telegram_utils import send_message_safe
 from commands.project import handle_project_command
+from commands.memory import handle_memory_command
 
 # Logger
 logging.basicConfig(level=logging.INFO)
@@ -140,6 +141,11 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
 
         if text.startswith("/project"):
             response_text = handle_project_command(str(user_id), text[8:].strip())
+            _send(chat_id, response_text)
+            return https_fn.Response("ok", status=200)
+
+        if text.startswith("/memory"):
+            response_text = handle_memory_command(str(user_id), text[7:].strip())
             _send(chat_id, response_text)
             return https_fn.Response("ok", status=200)
 
