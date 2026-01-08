@@ -24,7 +24,10 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
-
+      - name: Who am I
+        run: |
+          gcloud auth list
+          gcloud config list account
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
