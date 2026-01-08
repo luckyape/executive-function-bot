@@ -205,3 +205,13 @@ def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
 
     except Exception as e:
         logger.error(f"Morning briefing failed: {e}", exc_info=True)
+
+
+@scheduler_fn.on_schedule(schedule="every day 00:00", invoker="private")
+def decay_job(event: scheduler_fn.ScheduledEvent) -> None:
+    """
+    Scheduled Cloud Function to decay memory scores and handle TTLs.
+    """
+    logger.info("Starting memory decay job...")
+    # TODO: Implement TTL decay logic here
+    logger.info("Memory decay job complete.")
