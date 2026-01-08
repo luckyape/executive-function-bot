@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from google.cloud.firestore_v1.base_query import FieldFilter
 from firebase_admin import firestore
 
-from firestore_client import get_db
+from .firestore_client import get_db
 
 
 # NOTE: No global db initialization here!
@@ -80,6 +80,157 @@ def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
     )
 
     return tasks
+
+
+def add_to_scratchpad(user_id: str, content: str) -> str:
+    """Adds a note to the user's scratchpad."""
+    db = get_db()
+    scratchpad_ref = (
+        db.collection("users")
+        .document(str(user_id))
+        .collection("memory_scratchpad")
+        .document()
+    )
+    scratchpad_ref.set(
+        {"content": content, "created_at": firestore.SERVER_TIMESTAMP}
+    )
+    return "Note added to scratchpad."
+
+
+def get_scratchpad(user_id: str) -> str:
+    """Returns the user's scratchpad content as a 1-indexed list."""
+    db = get_db()
+    scratchpad_ref = (
+        db.collection("users")
+        .document(str(user_id))
+        .collection("memory_scratchpad")
+    )
+    query = scratchpad_ref.order_by("created_at").stream()
+
+    notes = [doc.to_dict().get("content", "") for doc in query]
+    if not notes:
+        return "Scratchpad is empty."
+
+    return "Scratchpad content:\n" + "\n".join(f"{i+1}. {note}" for i, note in enumerate(notes))
+
+
+def clear_scratchpad(user_id: str) -> str:
+    """Clears the user's scratchpad."""
+    db = get_db()
+    scratchpad_ref = (
+        db.collection("users")
+        .document(str(user_id))
+        .collection("memory_scratchpad")
+    )
+
+    # Batch delete all documents in the collection
+    docs = scratchpad_ref.stream()
+    batch = db.batch()
+    count = 0
+    for doc in docs:
+        batch.delete(doc.reference)
+        count += 1
+
+    if count == 0:
+        return "Scratchpad is already empty."
+
+    batch.commit()
+    return f"Scratchpad cleared. ({count} notes removed)"
+
+
+def recall_from_archive(user_id: str, query: str) -> str:
+    """Searches the user's archive for a specific memory."""
+    db = get_db()
+    archive_ref = (
+        db.collection("users")
+        .document(str(user_id))
+        .collection("memory_archive")
+    )
+
+    # Simple keyword search: requires an index on the 'content' field
+    # In a real application, you'd use a more sophisticated search engine (e.g., Elasticsearch, Algolia)
+    # For now, we'll do a basic substring match, which is inefficient at scale.
+
+    docs = archive_ref.stream()
+
+    matches = []
+    for doc in docs:
+        data = doc.to_dict()
+        if data and query.lower() in data.get("content", "").lower():
+            matches.append(data)
+
+    if not matches:
+        return f"No memories found matching '{query}'."
+
+    response = f"Found {len(matches)} memories matching '{query}':\n"
+    for match in matches:
+        response += f"- {match.get('content')}\n"
+
+    return response
+
+
+def get_memory_mode(user_id: str) -> str:
+    """Gets the user's current memory mode."""
+    db = get_db()
+    doc = db.collection("users").document(str(user_id)).get()
+    if doc.exists:
+        return doc.to_dict().get("memory_mode", "hot") # Default to "hot"
+    return "hot"
+
+
+def set_memory_mode(user_id: str, mode: str) -> str:
+    """Sets the user's memory mode. Valid modes: off, hot, hot+projects, strict."""
+    valid_modes = ["off", "hot", "hot+projects", "strict"]
+    if mode not in valid_modes:
+        return f"Invalid memory mode. Please choose from: {', '.join(valid_modes)}"
+
+    db = get_db()
+    db.collection("users").document(str(user_id)).set(
+        {"memory_mode": mode, "updated_at": firestore.SERVER_TIMESTAMP},
+        merge=True,
+    )
+    return f"Memory mode set to: {mode}"
+
+
+def promote_from_scratchpad(user_id: str, note_index: int) -> str:
+    """Promotes a note from the scratchpad to hot memory, using a 1-based index."""
+    db = get_db()
+    scratchpad_ref = (
+        db.collection("users")
+        .document(str(user_id))
+        .collection("memory_scratchpad")
+    )
+
+    query = scratchpad_ref.order_by("created_at").stream()
+    notes = list(query)
+
+    # Convert 1-based index to 0-based
+    note_index_0_based = note_index - 1
+
+    if not 0 <= note_index_0_based < len(notes):
+        return f"Invalid note number. Please choose a number between 1 and {len(notes)}."
+
+    note_to_promote = notes[note_index_0_based]
+    content = note_to_promote.to_dict().get("content", "")
+
+    # Add to hot memory
+    hot_memory_ref = (
+        db.collection("users")
+        .document(str(user_id))
+        .collection("memory_hot")
+        .document()
+    )
+    hot_memory_ref.set({
+        "content": content,
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "last_accessed_at": firestore.SERVER_TIMESTAMP,
+        "source": "promoted_scratchpad"
+    })
+
+    # Delete from scratchpad
+    note_to_promote.reference.delete()
+
+    return f"Note promoted to hot memory: '{content}'"
 
 
 def complete_task(user_id: str, query: Optional[str] = None) -> str:
