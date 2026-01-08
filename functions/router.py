@@ -39,7 +39,7 @@ def route_command(text: str, context: Dict[str, Any]) -> str:
         return f"Unknown command: {command_word}"
 
 
-from .tools import (
+from tools import (
     add_to_scratchpad,
     get_scratchpad,
     clear_scratchpad,

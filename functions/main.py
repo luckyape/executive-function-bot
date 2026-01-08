@@ -4,11 +4,11 @@ import asyncio
 from firebase_functions import https_fn, scheduler_fn
 from telegram import Update, Bot
 
-from .agent import Agent
-from .router import route_command
-from .firestore_client import get_db
-from .config import get_config, is_safe_mode
-from .telegram_utils import send_message_safe  # local helper (NOT the telegram package)
+from agent import Agent
+from router import route_command
+from firestore_client import get_db
+from config import get_config, is_safe_mode
+from telegram_utils import send_message_safe  # local helper (NOT the telegram package)
 
 # Logger
 logging.basicConfig(level=logging.INFO)
@@ -46,7 +46,7 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool 
     """
     Deterministic logic for Safe Mode (no LLM calls).
     """
-    from .tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+    from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
 
     if from_fallback:
         _send(chat_id, "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.")

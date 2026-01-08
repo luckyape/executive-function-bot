@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from google.cloud.firestore_v1.base_query import FieldFilter
 from firebase_admin import firestore
 
-from .firestore_client import get_db
+from firestore_client import get_db
 
 
 # NOTE: No global db initialization here!

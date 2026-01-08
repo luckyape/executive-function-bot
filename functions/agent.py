@@ -3,8 +3,8 @@ from google import genai
 from google.genai import types
 from google.api_core import exceptions
 
-from .tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
-from .config import get_config
+from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class Agent:
         ]
 
         # Current implementation: pass callables directly
-        from .tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
         my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
 
         try:
