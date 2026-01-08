@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 from google import genai
@@ -6,6 +8,7 @@ from google.api_core import exceptions
 
 from tools import get_manifesto, get_pending_tasks
 from config import get_config
+from context_builder import build_context
 
 logger = logging.getLogger(__name__)
 
@@ -94,14 +97,12 @@ class Agent:
             enabled_tools.append(archive)
 
         try:
-            # Optional context (manifesto/tasks/project card, etc.)
+            # Context is helpful but not required; fail open.
             context = ""
             try:
-                from .context_builder import build_context
                 context = build_context(user_id) or ""
             except Exception as e:
-                # Context is helpful but not required; fail open.
-                logger.warning(f"context_builder failed: {e}", exc_info=True)
+                logger.warning(f"build_context failed: {e}", exc_info=True)
                 context = ""
 
             prompt_parts: list[str] = [f"User ID: {user_id}"]
@@ -145,15 +146,16 @@ class Agent:
         if not client:
             return ""
 
-        manifesto = get_manifesto(str(user_id))
-        pending_tasks = get_pending_tasks(str(user_id))
-        task_list = "\n".join([f"- {t['description']}" for t in pending_tasks])
+        context = ""
+        try:
+            context = build_context(user_id) or ""
+        except Exception as e:
+            logger.warning(f"build_context failed (morning briefing): {e}", exc_info=True)
+            context = ""
 
         prompt = (
-            f"User ID: {user_id}\n"
-            f"Manifesto: {manifesto}\n"
-            f"Pending Tasks:\n{task_list}\n\n"
-            "Based on these tasks and this goal, write a 1-sentence 'Kick in the ass' message."
+            f"{context}\n\n"
+            "Based on this context, write a 1-sentence 'Kick in the ass' message."
         )
 
         try:
