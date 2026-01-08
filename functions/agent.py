@@ -3,8 +3,8 @@ from google import genai
 from google.genai import types
 from google.api_core import exceptions
 
-from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
-from config import get_config
+from .tools import get_manifesto, get_pending_tasks
+from .config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +53,12 @@ class Agent:
             return "LLM is unavailable right now. I can still add/list/complete tasks."
 
         # Standard tools available in chat
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+        from .tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
         my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
 
         # Add recall tool if capability is present
         if "recall" in capabilities:
-            from tools import recall
+            from .tools import recall
             my_tools.append(recall)
 
         try:

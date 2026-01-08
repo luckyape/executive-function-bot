@@ -1,4 +1,4 @@
-from functions.db.archive_repo import search_archive
+from ..db.archive_repo import search_archive
 
 def recall(user_id: str, query: str) -> str:
     """
