@@ -18,29 +18,14 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-      - name: Debug auth target
-        run: |
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
-          python - <<'PY'
-          import json, os, re
-          p = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-          print("creds_file:", p)
-          with open(p) as f:
-            j = json.load(f)
-          url = j.get("service_account_impersonation_url","")
-          print("impersonation_url:", url)
-          m = re.search(r"/serviceAccounts/([^:]+@[^/]+)", url)
-          print("IMPERSONATED_SA:", m.group(1) if m else "")
-          print("audience:", j.get("audience",""))
-          PY
-          echo "WIP_SECRET=${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}"
-          echo "SA_SECRET=${{ secrets.SERVICE_ACCOUNT_EMAIL }}"
-
       - name: Authenticate to Google Cloud
+        id: auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+          export_environment_variables: true
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
