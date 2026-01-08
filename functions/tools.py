@@ -1,12 +1,12 @@
 import datetime
 from typing import List, Dict, Any, Optional
-from functools import wraps
 
 from google.cloud.firestore_v1.base_query import FieldFilter
 from firebase_admin import firestore
+from functools import wraps
 
-from functions.firestore_client import get_db
-from functions.audit.logger import log_tool_call, log_retrieval
+from firestore_client import get_db
+from audit.logger import log_tool_call, log_retrieval
 
 
 def tool_audit_decorator(func):
@@ -187,8 +187,6 @@ def complete_task(user_id: str, query: Optional[str] = None) -> str:
         p for p in pending_tasks
         if clean_query in (p.to_dict().get("description", "") or "").lower()
     ]
-
-    log_retrieval(user_id, clean_query, [t.id for t in matched], "pending_tasks_fuzzy_match")
 
     if len(matched) == 1:
         task_to_complete = matched[0]

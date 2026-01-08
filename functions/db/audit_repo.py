@@ -1,5 +1,5 @@
 from firebase_admin import firestore
-from functions.firestore_client import get_db
+from firestore_client import get_db
 
 def save_audit_log(user_id: str, event_data: dict) -> None:
     """

@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, Optional
 
-from functions.db.audit_repo import save_audit_log
+from db.audit_repo import save_audit_log
 
 logger = logging.getLogger(__name__)
 
