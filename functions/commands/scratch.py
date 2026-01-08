@@ -15,20 +15,20 @@ def handle_scratch_command(message):
     subcommand = parts[1] if len(parts) > 1 else 'show'
     args = parts[2] if len(parts) > 2 else ''
 
-    repo = ScratchRepo()
+    repo = ScratchRepo(str(user_id))
 
     if subcommand == 'add':
         if not args:
             send_message(chat_id, "Please provide text to add to scratch.")
             return
-        scratch_id = repo.add(user_id, args)
+        scratch_id = repo.add(args)
         send_message(chat_id, f"Added to scratch with ID: {scratch_id}")
 
     elif subcommand == 'show':
         limit = 10
         if args and args.isdigit():
             limit = int(args)
-        entries = repo.get_all(user_id, limit=limit)
+        entries = repo.get_all(limit=limit)
         if not entries:
             send_message(chat_id, "No scratch entries found.")
             return
@@ -44,7 +44,7 @@ def handle_scratch_command(message):
         send_message(chat_id, response)
 
     elif subcommand == 'clear':
-        repo.clear_all(user_id)
+        repo.clear_all()
         send_message(chat_id, "All scratch entries cleared.")
 
     elif subcommand == 'promote':
@@ -57,7 +57,7 @@ def handle_scratch_command(message):
         target_tier = promote_parts[1]
         tag_or_project = promote_parts[2] if len(promote_parts) > 2 else None
 
-        scratch_entry = repo.get_by_id(user_id, scratch_id)
+        scratch_entry = repo.get_by_id(scratch_id)
 
         if not scratch_entry:
             send_message(chat_id, f"Scratch entry with ID {scratch_id} not found.")
