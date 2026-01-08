@@ -137,6 +137,13 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             _send(chat_id, "Welcome! Tell me your Manifesto (Goal).")
             return https_fn.Response("ok", status=200)
 
+        # Handle /memory command
+        if text.startswith("/memory"):
+            from commands.memory import handle_memory_command
+            response_text = handle_memory_command(str(user_id), text)
+            _send(chat_id, response_text)
+            return https_fn.Response("ok", status=200)
+
         # 6) Safe mode forced
         if is_safe_mode():
             handle_safe_mode(user_id, chat_id, text)
