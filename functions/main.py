@@ -8,6 +8,7 @@ from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
 from telegram_utils import send_message_safe  # local helper (NOT the telegram package)
+from decay import decay_job
 
 # Logger
 logging.basicConfig(level=logging.INFO)
