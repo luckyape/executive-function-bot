@@ -9,6 +9,8 @@ from telegram import Update, Bot
 from agent import Agent
 from firestore_client import get_db
 from config import get_config, is_safe_mode
+
+from decay import decay_job
 from telegram_utils import send_message_safe
 from router import route_update
 from commands.help import get_help_text
