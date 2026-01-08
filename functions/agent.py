@@ -1,4 +1,5 @@
 import logging
+
 from google import genai
 from google.genai import types
 from google.api_core import exceptions
@@ -44,38 +45,92 @@ class Agent:
         return self.client
 
     def generate_response_with_tools(
-        self, user_id: str, message_text: str, capabilities: list[str] | None = None
+        self,
+        user_id: str,
+        message_text: str,
+        intent: str | list[str] | None = "chat",
+        capabilities: list[str] | None = None,
     ) -> str:
+        """
+        Backward-compatible parameter handling:
+        - New style: (user_id, message_text, intent="chat", capabilities=[...])
+        - Old style: (user_id, message_text, capabilities=[...])  -> detected if intent is a list
+        """
+        # Back-compat: third positional might be capabilities (list[str]) from older call sites
+        if isinstance(intent, list):
+            capabilities = intent
+            intent = "chat"
+
+        if intent is None:
+            intent = "chat"
         if capabilities is None:
             capabilities = []
+
         client = self._get_client()
         if not client:
             return "LLM is unavailable right now. I can still add/list/complete tasks."
 
-        # Standard tools available in chat
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
-        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
+        # Import tool functions (keep local to reduce import/cycle risk)
+        from tools import set_manifesto, add_task, complete_task
 
-        # Add recall tool if capability is present
+        # Base tools for all intents
+        enabled_tools = [
+            get_manifesto,
+            set_manifesto,
+            add_task,
+            get_pending_tasks,
+            complete_task,
+        ]
+
+        # Gated tools (only enabled when capability flag is present)
         if "recall" in capabilities:
             from tools import recall
-            my_tools.append(recall)
+            enabled_tools.append(recall)
+        if "scratch" in capabilities:
+            from tools import scratch
+            enabled_tools.append(scratch)
+        if "archive" in capabilities:
+            from tools import archive
+            enabled_tools.append(archive)
 
         try:
+            # Optional context (manifesto/tasks/project card, etc.)
+            context = ""
+            try:
+                from .context_builder import build_context
+                context = build_context(user_id) or ""
+            except Exception as e:
+                # Context is helpful but not required; fail open.
+                logger.warning(f"context_builder failed: {e}", exc_info=True)
+                context = ""
+
+            prompt_parts: list[str] = [f"User ID: {user_id}"]
+
+            # Only include intent when it's not plain chat (keeps normal chat clean)
+            if intent and intent != "chat":
+                prompt_parts.append(f"Intent: {intent}")
+
+            if context:
+                prompt_parts.append(f"Context:\n{context}")
+
+            prompt_parts.append(f"Message: {message_text}")
+            prompt = "\n\n".join(prompt_parts)
+
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
-                    tools=my_tools,  # if this ever breaks, switch to tools=_tools_config
+                    tools=enabled_tools,
                     system_instruction=self.system_instruction,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
             )
-            response = chat.send_message(f"User ID: {user_id}\nMessage: {message_text}")
+
+            response = chat.send_message(prompt)
             return response.text
 
         except exceptions.ResourceExhausted as e:
             logger.warning(f"Gemini 429/ResourceExhausted: {e}")
-            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
+            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again shortly."
 
         except exceptions.GoogleAPICallError as e:
             logger.error(f"Gemini API Call Error: {e}", exc_info=True)
