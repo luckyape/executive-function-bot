@@ -1,6 +1,6 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from firebase_admin import firestore
-from functions.firestore_client import get_db
+from firestore_client import get_db
 
 def search_archive(user_id: str, query: str) -> List[Dict[str, Any]]:
     """

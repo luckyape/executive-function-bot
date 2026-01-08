@@ -53,12 +53,12 @@ class Agent:
             return "LLM is unavailable right now. I can still add/list/complete tasks."
 
         # Standard tools available in chat
-        from .tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
         my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
 
         # Add recall tool if capability is present
         if "recall" in capabilities:
-            from .tools import recall
+            from tools import recall
             my_tools.append(recall)
 
         try:
