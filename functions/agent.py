@@ -56,8 +56,8 @@ class Agent:
         ]
 
         # Current implementation: pass callables directly
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
-        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
+        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task, recall
+        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task, recall]
 
         try:
             chat = client.chats.create(

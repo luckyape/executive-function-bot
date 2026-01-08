@@ -5,6 +5,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 from firebase_admin import firestore
 
 from firestore_client import get_db
+from functions.tools.recall import recall
 
 
 # NOTE: No global db initialization here!
@@ -183,6 +184,7 @@ TOOL_MAP = {
     "add_task": add_task,
     "get_pending_tasks": get_pending_tasks,
     "complete_task": complete_task,
+    "recall": recall,
 }
 
 # Definitions for Gemini
@@ -239,6 +241,18 @@ TOOL_DEFINITIONS = [
                 "query": {"type": "STRING", "description": "The task identifier: description fragment, '#N', or empty."},
             },
             "required": ["user_id"],
+        },
+    },
+    {
+        "name": "recall",
+        "description": "Search the user's private archive of documents and notes.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "user_id": {"type": "STRING", "description": "The Telegram user ID"},
+                "query": {"type": "STRING", "description": "The search query"},
+            },
+            "required": ["user_id", "query"],
         },
     },
 ]
