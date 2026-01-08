@@ -1,9 +1,10 @@
 import logging
+
 from google import genai
 from google.genai import types
 from google.api_core import exceptions
 
-from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
+from tools import get_manifesto, get_pending_tasks
 from config import get_config
 
 logger = logging.getLogger(__name__)
@@ -44,13 +45,33 @@ class Agent:
         return self.client
 
     def generate_response_with_tools(
-        self, user_id: str, message_text: str, intent: str, capabilities: list
+        self,
+        user_id: str,
+        message_text: str,
+        intent: str | list[str] | None = "chat",
+        capabilities: list[str] | None = None,
     ) -> str:
+        """
+        Backward-compatible parameter handling:
+        - New style: (user_id, message_text, intent="chat", capabilities=[...])
+        - Old style: (user_id, message_text, capabilities=[...])  -> detected if intent is a list
+        """
+        # Back-compat: third positional might be capabilities (list[str]) from older call sites
+        if isinstance(intent, list):
+            capabilities = intent
+            intent = "chat"
+
+        if intent is None:
+            intent = "chat"
+        if capabilities is None:
+            capabilities = []
+
         client = self._get_client()
         if not client:
             return "LLM is unavailable right now. I can still add/list/complete tasks."
 
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+        # Import tool functions (keep local to reduce import/cycle risk)
+        from tools import set_manifesto, add_task, complete_task
 
         # Base tools for all intents
         enabled_tools = [
@@ -61,7 +82,7 @@ class Agent:
             complete_task,
         ]
 
-        # Gated tools
+        # Gated tools (only enabled when capability flag is present)
         if "recall" in capabilities:
             from tools import recall
             enabled_tools.append(recall)
@@ -73,12 +94,27 @@ class Agent:
             enabled_tools.append(archive)
 
         try:
-            from .context_builder import build_context
-            context = build_context(user_id)
+            # Optional context (manifesto/tasks/project card, etc.)
+            context = ""
+            try:
+                from .context_builder import build_context
+                context = build_context(user_id) or ""
+            except Exception as e:
+                # Context is helpful but not required; fail open.
+                logger.warning(f"context_builder failed: {e}", exc_info=True)
+                context = ""
 
-            # Construct the message with context
-            context_prefix = f"{context}\n\n" if context else ""
-            message_with_context = f"{context_prefix}User ID: {user_id}\nMessage: {message_text}"
+            prompt_parts: list[str] = [f"User ID: {user_id}"]
+
+            # Only include intent when it's not plain chat (keeps normal chat clean)
+            if intent and intent != "chat":
+                prompt_parts.append(f"Intent: {intent}")
+
+            if context:
+                prompt_parts.append(f"Context:\n{context}")
+
+            prompt_parts.append(f"Message: {message_text}")
+            prompt = "\n\n".join(prompt_parts)
 
             chat = client.chats.create(
                 model=self.model,
@@ -88,28 +124,13 @@ class Agent:
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
             )
-            # Build the LLM input as a single string (Gemini expects a text prompt here)
-            parts = [f"User ID: {user_id}"]
 
-            # Only include intent when it's not plain chat (keeps normal chat clean)
-            if intent and intent != "chat":
-                parts.append(f"Intent: {intent}")
-
-            # If you already computed context (manifesto/tasks/project card), include it explicitly
-            # message_with_context should already contain "Context:\n..." + user message, etc.
-            # If not, just use message_text.
-            if message_with_context:
-                parts.append(message_with_context)
-            else:
-                parts.append(f"Message: {message_text}")
-
-            prompt = "\n".join(parts)
             response = chat.send_message(prompt)
             return response.text
 
         except exceptions.ResourceExhausted as e:
             logger.warning(f"Gemini 429/ResourceExhausted: {e}")
-            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again in ~30s."
+            return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again shortly."
 
         except exceptions.GoogleAPICallError as e:
             logger.error(f"Gemini API Call Error: {e}", exc_info=True)
