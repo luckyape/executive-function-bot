@@ -6,23 +6,34 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  # Firebase expects PROJECT ID, not project number
+  FIREBASE_PROJECT_ID: executive-function-coaching
+  CLOUD_RUN_SERVICE: telegram-webhook
+  CLOUD_RUN_REGION: us-central1
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
       - name: Authenticate to Google Cloud
+        id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: '${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}'
-          service_account: '${{ secrets.SERVICE_ACCOUNT_EMAIL }}'
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
         with:
-          python-version: '3.11'
+          project_id: ${{ env.FIREBASE_PROJECT_ID }}
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Install Dependencies and Deploy
         run: |
@@ -35,16 +46,17 @@ jobs:
           python -c "import firebase_functions; print(f'SDK location: {firebase_functions.__file__}')"
 
           cd ..
-          # Use npx -y to auto-accept install, ensure latest version
-          npx -y firebase-tools@latest deploy --project ${{ secrets.GCP_PROJECT_ID }} --only functions --force
+          npx -y firebase-tools@latest deploy \
+            --project "${{ env.FIREBASE_PROJECT_ID }}" \
+            --only functions \
+            --force
         env:
-          # Explicitly tell gcloud/firebase which python to use if it tries to be smart
           CLOUDSDK_PYTHON: ${{ github.workspace }}/functions/venv/bin/python
 
       - name: Rebind Secrets to Cloud Run
         run: |
-          # Firebase Deploy (Gen2) wipes out existing secret bindings, so we re-apply them.
-          gcloud run services update telegram-webhook \
-            --project ${{ secrets.GCP_PROJECT_ID }} \
-            --region ${{ secrets.GCP_REGION }} \
-            --update-secrets=TELEGRAM_TOKEN=telegram-token:latest,GEMINI_API_KEY=gemini-api-key:latest
+          # Firebase Deploy (Gen2) can wipe out existing secret bindings, so we re-apply them.
+          gcloud run services update "${{ env.CLOUD_RUN_SERVICE }}" \
+            --project "${{ env.FIREBASE_PROJECT_ID }}" \
+            --region "${{ env.CLOUD_RUN_REGION }}" \
+            --update-secrets "TELEGRAM_TOKEN=TELEGRAM_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest"
