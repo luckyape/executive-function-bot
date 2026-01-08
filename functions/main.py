@@ -36,7 +36,6 @@ def _send(chat_id: int, text: str) -> None:
         if asyncio.iscoroutine(result):
             asyncio.run(result)
     except RuntimeError as e:
-        # Best-effort guard; don't crash webhook
         logger.error(f"Failed to send message (RuntimeError): {e}", exc_info=True)
     except Exception as e:
         logger.error(f"Failed to send message: {e}", exc_info=True)
@@ -49,13 +48,9 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool 
     from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
 
     if from_fallback:
-        _send(
-            chat_id,
-            "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.",
-        )
+        _send(chat_id, "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.")
 
-    text = text or ""
-    text_lower = text.lower().strip()
+    text_lower = (text or "").lower().strip()
 
     # 1) Manifesto bootstrap
     manifesto = get_manifesto(str(user_id))
@@ -90,7 +85,6 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool 
         return
 
     if text_lower.startswith("done"):
-        # supports: "done", "done #1", "done pay rent"
         query = text[4:].strip()
         res = complete_task(str(user_id), query)
         _send(chat_id, f"[SAFE MODE] {res}")
@@ -166,7 +160,6 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
 
     except Exception as e:
         logger.error(f"Unhandled error in webhook: {e}", exc_info=True)
-        # Best-effort notify user (if we can recover chat_id)
         try:
             chat_id = (data.get("message", {}).get("chat", {}) or {}).get("id")
             if chat_id:
@@ -197,7 +190,6 @@ def morning_briefing(event: scheduler_fn.ScheduledEvent) -> None:
         for doc in docs:
             user_id = doc.id
 
-            # If safe mode is on, skip pushes
             if is_safe_mode():
                 continue
 

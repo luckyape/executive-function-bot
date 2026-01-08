@@ -9,6 +9,8 @@ permissions:
 env:
   # Firebase expects PROJECT ID, not project number
   FIREBASE_PROJECT_ID: executive-function-coaching
+  CLOUD_RUN_SERVICE: telegram-webhook
+  CLOUD_RUN_REGION: us-central1
 
 jobs:
   deploy:
@@ -16,19 +18,18 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
       - name: Authenticate to Google Cloud
+        id: auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
-
-      # This is the missing piece if you later call `gcloud`
+          create_credentials_file: true
+          export_environment_variables: true
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.FIREBASE_PROJECT_ID }}
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -51,3 +52,11 @@ jobs:
             --force
         env:
           CLOUDSDK_PYTHON: ${{ github.workspace }}/functions/venv/bin/python
+
+      - name: Rebind Secrets to Cloud Run
+        run: |
+          # Firebase Deploy (Gen2) can wipe out existing secret bindings, so we re-apply them.
+          gcloud run services update "${{ env.CLOUD_RUN_SERVICE }}" \
+            --project "${{ env.FIREBASE_PROJECT_ID }}" \
+            --region "${{ env.CLOUD_RUN_REGION }}" \
+            --update-secrets "TELEGRAM_TOKEN=TELEGRAM_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest"

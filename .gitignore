@@ -1,0 +1,21 @@
+# Python
+ls -la functions | grep -E '^.*telegram\.py$' || true
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# venv
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# env files
+.env
+
+# Firebase
+.firebase/
