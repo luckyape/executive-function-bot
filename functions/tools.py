@@ -1,15 +1,35 @@
 import datetime
 from typing import List, Dict, Any, Optional
+from functools import wraps
 
 from google.cloud.firestore_v1.base_query import FieldFilter
 from firebase_admin import firestore
 
 from firestore_client import get_db
+from audit.logger import log_tool_call, log_retrieval
 
+
+def tool_audit_decorator(func):
+    """
+    Decorator to log tool calls and their results.
+    """
+    @wraps(func)
+    def wrapper(user_id: str, *args, **kwargs):
+        # Combine args and kwargs into a single dictionary for logging
+        tool_args = {**kwargs}
+        arg_names = func.__code__.co_varnames[1:func.__code__.co_argcount]
+        for i, arg in enumerate(args):
+            tool_args[arg_names[i]] = arg
+
+        result = func(user_id, *args, **kwargs)
+        log_tool_call(user_id, func.__name__, tool_args, result)
+        return result
+    return wrapper
 
 # NOTE: No global db initialization here!
 # All functions must call get_db() to access Firestore.
 
+@tool_audit_decorator
 def get_manifesto(user_id: str) -> str:
     """Returns the user's North Star goal (Manifesto)."""
     db = get_db()
@@ -19,6 +39,7 @@ def get_manifesto(user_id: str) -> str:
     return "No manifesto set."
 
 
+@tool_audit_decorator
 def set_manifesto(user_id: str, manifesto: str) -> str:
     """Sets or updates the user's North Star goal."""
     db = get_db()
@@ -29,6 +50,7 @@ def set_manifesto(user_id: str, manifesto: str) -> str:
     return "Manifesto updated."
 
 
+@tool_audit_decorator
 def add_task(user_id: str, description: str) -> str:
     """Saves a new task to Firestore for the user."""
     db = get_db()
@@ -43,6 +65,7 @@ def add_task(user_id: str, description: str) -> str:
     return f"Task added: {description}"
 
 
+@tool_audit_decorator
 def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
     """Returns a list of incomplete tasks and saves their IDs for quick actions."""
     db = get_db()
@@ -79,9 +102,11 @@ def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
         merge=True,
     )
 
+    log_retrieval(user_id, "", task_ids, "pending_tasks")
     return tasks
 
 
+@tool_audit_decorator
 def complete_task(user_id: str, query: Optional[str] = None) -> str:
     """
     Marks a task as done.
@@ -162,6 +187,8 @@ def complete_task(user_id: str, query: Optional[str] = None) -> str:
         p for p in pending_tasks
         if clean_query in (p.to_dict().get("description", "") or "").lower()
     ]
+
+    log_retrieval(user_id, clean_query, [t.id for t in matched], "pending_tasks_fuzzy_match")
 
     if len(matched) == 1:
         task_to_complete = matched[0]

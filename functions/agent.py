@@ -3,8 +3,9 @@ from google import genai
 from google.genai import types
 from google.api_core import exceptions
 
-from tools import TOOL_MAP, TOOL_DEFINITIONS, get_manifesto, get_pending_tasks
-from config import get_config
+from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+from config import get_config, is_safe_mode
+from audit.logger import log_command
 
 logger = logging.getLogger(__name__)
 
@@ -44,26 +45,27 @@ class Agent:
         return self.client
 
     def generate_response_with_tools(self, user_id: str, message_text: str) -> str:
+        capability_flags = {"safe_mode": is_safe_mode()}
+
+        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
+        memory_sources = [t.__name__ for t in my_tools]
+
+        log_command(
+            user_id,
+            message_text,
+            memory_sources=memory_sources,
+            capability_flags=capability_flags,
+        )
+
         client = self._get_client()
         if not client:
             return "LLM is unavailable right now. I can still add/list/complete tasks."
-
-        # Tool declarations (kept for future use / compatibility)
-        _tools_config = [
-            types.Tool(
-                function_declarations=[types.FunctionDeclaration(**td) for td in TOOL_DEFINITIONS]
-            )
-        ]
-
-        # Current implementation: pass callables directly
-        from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
-        my_tools = [get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task]
 
         try:
             chat = client.chats.create(
                 model=self.model,
                 config=types.GenerateContentConfig(
-                    tools=my_tools,  # if this ever breaks, switch to tools=_tools_config
+                    tools=my_tools,
                     system_instruction=self.system_instruction,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
                 ),
