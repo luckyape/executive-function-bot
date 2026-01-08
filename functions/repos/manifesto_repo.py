@@ -1,4 +1,4 @@
-from ..firestore_client import get_db
+from firestore_client import get_db
 
 def get_manifesto_text(user_id: str) -> str:
     """
