@@ -5,8 +5,8 @@ from functools import wraps
 from google.cloud.firestore_v1.base_query import FieldFilter
 from firebase_admin import firestore
 
-from firestore_client import get_db
-from audit.logger import log_tool_call, log_retrieval
+from functions.firestore_client import get_db
+from functions.audit.logger import log_tool_call, log_retrieval
 
 
 def tool_audit_decorator(func):

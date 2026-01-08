@@ -4,10 +4,10 @@ import asyncio
 from firebase_functions import https_fn, scheduler_fn
 from telegram import Update, Bot
 
-from agent import Agent
-from firestore_client import get_db
-from config import get_config, is_safe_mode
-from telegram_utils import send_message_safe  # local helper (NOT the telegram package)
+from functions.agent import Agent
+from functions.firestore_client import get_db
+from functions.config import get_config, is_safe_mode
+from functions.telegram_utils import send_message_safe  # local helper (NOT the telegram package)
 
 # Logger
 logging.basicConfig(level=logging.INFO)

@@ -3,9 +3,9 @@ from google import genai
 from google.genai import types
 from google.api_core import exceptions
 
-from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
-from config import get_config, is_safe_mode
-from audit.logger import log_command
+from functions.tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
+from functions.config import get_config, is_safe_mode
+from functions.audit.logger import log_command
 
 logger = logging.getLogger(__name__)
 
