@@ -132,9 +132,14 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         user_id = update.message.from_user.id
         text = update.message.text
 
-        # 5) /start
+        # 5) /start, /scratch
         if text == "/start":
             _send(chat_id, "Welcome! Tell me your Manifesto (Goal).")
+            return https_fn.Response("ok", status=200)
+
+        if text.startswith("/scratch"):
+            from commands.scratch import handle_scratch_command
+            handle_scratch_command(update.message.to_dict())
             return https_fn.Response("ok", status=200)
 
         # 6) Safe mode forced
