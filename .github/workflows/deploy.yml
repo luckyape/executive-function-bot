@@ -24,20 +24,6 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
-      - name: Debug auth identity
-        run: |
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
-          gcloud auth list
-          gcloud config list
-          gcloud sts token introspect --token="$(gcloud auth print-access-token)" || true 
-      - name: Debug ActAs binding
-        run: |
-          gcloud iam service-accounts get-iam-policy executive-function-coaching@appspot.gserviceaccount.com \
-            --project executive-function-coaching          
-      - name: Who am I
-        run: |
-          gcloud auth list
-          gcloud config list account
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
