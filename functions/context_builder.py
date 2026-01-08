@@ -1,44 +1,61 @@
+from __future__ import annotations
+
 import logging
-from tools import get_manifesto, get_pending_tasks
-from db import project_repo, user_settings_repo
+
+from db.user_settings_repo import get_memory_mode, MemoryMode
+from repos import manifesto_repo, tasks_repo
 
 logger = logging.getLogger(__name__)
 
+
 def build_context(user_id: str) -> str:
     """
-    Builds the context for the agent based on the user's memory mode.
+    Builds the context string to be injected into the agent's prompt
+    based on the user's memory mode.
+
+    Modes:
+      - OFF: no context
+      - HOT: manifesto only
+      - PROJECTS: manifesto + pending tasks
+      - STRICT: manifesto + pending tasks (same as projects for now)
+
+    Note: Project-card context was removed in this branch; if you reintroduce it,
+    add it under PROJECTS/STRICT as another section.
     """
-    memory_mode = user_settings_repo.get_memory_mode(user_id)
-    context_sources = []
-    context = ""
+    try:
+        mode = get_memory_mode(user_id)
+    except Exception as e:
+        logger.error(f"Failed to get memory mode for user {user_id}: {e}", exc_info=True)
+        # Fail open, but deterministic: STRICT means "include what we can"
+        mode = MemoryMode.STRICT
 
-    if memory_mode == "off":
-        context_sources.append("none")
-        context = "Memory is off."
+    if mode == MemoryMode.OFF:
+        return ""
 
-    elif memory_mode == "hot":
-        context_sources.append("manifesto")
-        manifesto = get_manifesto(user_id)
-        context = f"Manifesto: {manifesto}\n"
+    context_parts: list[str] = []
 
-    elif memory_mode in ["projects", "strict"]:
-        context_sources.append("manifesto")
-        manifesto = get_manifesto(user_id)
-        context = f"Manifesto: {manifesto}\n"
+    # HOT memory: Manifesto
+    if mode in (MemoryMode.HOT, MemoryMode.PROJECTS, MemoryMode.STRICT):
+        try:
+            manifesto = manifesto_repo.get_manifesto_text(user_id)
+            if manifesto and manifesto != "No manifesto set.":
+                context_parts.append(f"## User Manifesto:\n{manifesto}")
+        except Exception as e:
+            logger.error(f"Failed to get manifesto for user {user_id}: {e}", exc_info=True)
 
-        context_sources.append("tasks")
-        pending_tasks = get_pending_tasks(user_id)
-        if pending_tasks:
-            task_list = "\n".join([f"- {t['description']}" for t in pending_tasks])
-            context += f"Pending Tasks:\n{task_list}\n"
+    # PROJECTS memory: Pending Tasks
+    if mode in (MemoryMode.PROJECTS, MemoryMode.STRICT):
+        try:
+            pending_tasks = tasks_repo.get_user_pending_tasks(user_id)
+            if pending_tasks:
+                task_list = "\n".join(
+                    [f"- {t.get('description', 'No description')}" for t in pending_tasks]
+                )
+                context_parts.append(f"## Pending Tasks:\n{task_list}")
+        except Exception as e:
+            logger.error(f"Failed to get pending tasks for user {user_id}: {e}", exc_info=True)
 
-        context_sources.append("project")
-        active_project = project_repo.get_active_project(user_id)
-        if active_project:
-            context += f"Active Project:\n"
-            for key, value in active_project.items():
-                if key not in ["id", "isActive", "isArchived", "lastTouchedAt"]:
-                    context += f"  {key}: {value}\n"
+    if not context_parts:
+        return ""
 
-    logger.info(f"Context built for user {user_id} with mode '{memory_mode}'. Sources: {', '.join(context_sources)}")
-    return context
+    return "\n\n---\n\n".join(context_parts)

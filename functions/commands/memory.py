@@ -1,19 +1,42 @@
-from db import user_settings_repo
+from __future__ import annotations
 
-VALID_MODES = ["off", "hot", "projects", "strict"]
+from db.user_settings_repo import get_memory_mode, set_memory_mode, MemoryMode
 
-def handle_memory_command(user_id: str, command_text: str) -> str:
+
+def handle_memory_command(user_id: str, text: str) -> str:
     """
     Handles the /memory command.
+    - /memory: Shows current mode.
+    - /memory <mode>: Sets a new mode.
+
+    Modes come from MemoryMode enum (expected values: off, hot, projects, strict).
     """
-    parts = command_text.strip().split()
+    parts = (text or "").strip().lower().split()
     if not parts:
-        current_mode = user_settings_repo.get_memory_mode(user_id)
-        return f"Current memory mode: {current_mode}. Use /memory <mode> to set."
+        return "Usage: /memory [off|hot|projects|strict]"
 
-    mode = parts[0].lower()
-    if mode not in VALID_MODES:
-        return f"Invalid mode. Valid modes are: {', '.join(VALID_MODES)}"
+    if parts[0] != "/memory":
+        return "Invalid command."
 
-    user_settings_repo.set_memory_mode(user_id, mode)
-    return f"Memory mode set to: {mode}"
+    # /memory
+    if len(parts) == 1:
+        current_mode = get_memory_mode(user_id)
+        # current_mode should be MemoryMode; if repo returns a string, this still works
+        value = current_mode.value if hasattr(current_mode, "value") else str(current_mode)
+        return f"Memory mode is currently set to: {value}"
+
+    # /memory <mode>
+    if len(parts) == 2:
+        new_mode_str = parts[1]
+        try:
+            new_mode = MemoryMode(new_mode_str)
+        except ValueError:
+            valid_modes = ", ".join([mode.value for mode in MemoryMode])
+            return f"Invalid memory mode '{new_mode_str}'. Valid modes are: {valid_modes}"
+
+        ok = set_memory_mode(user_id, new_mode)
+        if ok:
+            return f"Memory mode set to: {new_mode.value}"
+        return "Failed to set memory mode."
+
+    return "Usage: /memory [off|hot|projects|strict]"
