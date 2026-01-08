@@ -2,7 +2,7 @@ from typing import Optional, Dict, Any
 from enum import Enum
 import logging
 
-from ..firestore_client import get_db
+from firestore_client import get_db
 
 logger = logging.getLogger(__name__)
 

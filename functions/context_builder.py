@@ -1,6 +1,6 @@
 import logging
-from .db.user_settings_repo import get_memory_mode, MemoryMode
-from .repos import manifesto_repo, tasks_repo
+from db.user_settings_repo import get_memory_mode, MemoryMode
+from repos import manifesto_repo, tasks_repo
 
 logger = logging.getLogger(__name__)
 

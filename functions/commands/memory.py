@@ -1,4 +1,4 @@
-from ..db.user_settings_repo import get_memory_mode, set_memory_mode, MemoryMode
+from db.user_settings_repo import get_memory_mode, set_memory_mode, MemoryMode
 
 def handle_memory_command(user_id: str, text: str) -> str:
     """

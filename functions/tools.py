@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from .repos import manifesto_repo, tasks_repo
+from repos import manifesto_repo, tasks_repo
 
 def get_manifesto(user_id: str) -> str:
     """Returns the user's North Star goal (Manifesto)."""
