@@ -7,7 +7,7 @@ from firebase_functions import https_fn, scheduler_fn
 from telegram import Update, Bot
 
 from agent import Agent
-from router import route_command
+from router import route_update
 from firestore_client import get_db
 from config import get_config, is_safe_mode
 
