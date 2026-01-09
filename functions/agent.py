@@ -7,8 +7,9 @@ from google.genai import types
 from google.api_core import exceptions
 
 from tools import get_manifesto, get_pending_tasks
-from config import get_config
+from config import get_config, is_safe_mode
 from context_builder import build_context
+from audit.logger import log_command
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,24 @@ class Agent:
         if "archive" in capabilities:
             from tools import archive
             enabled_tools.append(archive)
+
+        # Audit trail (best-effort; never blocks response generation)
+        try:
+            capability_flags = {
+                "safe_mode": bool(is_safe_mode()),
+                "intent": intent,
+                "capabilities": list(capabilities),
+            }
+            memory_sources = [t.__name__ for t in enabled_tools]
+
+            log_command(
+                user_id,
+                message_text,
+                memory_sources=memory_sources,
+                capability_flags=capability_flags,
+            )
+        except Exception as e:
+            logger.warning(f"audit log_command failed: {e}", exc_info=True)
 
         try:
             # Context is helpful but not required; fail open.
