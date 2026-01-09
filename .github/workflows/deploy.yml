@@ -30,9 +30,7 @@ jobs:
           python -m venv venv
           source venv/bin/activate
           pip install -U pip
-          pip install -r requirements.txt
-          # if you have dev deps split out, prefer:
-          # pip install -r requirements-dev.txt
+          pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run Tests
         run: |
