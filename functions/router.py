@@ -7,6 +7,7 @@ COMMAND_CONFIG: Dict[str, Dict[str, Any]] = {
     "/recall": {"intent": "recall", "capabilities": ["recall"]},
     "/scratch": {"intent": "scratch", "capabilities": ["scratch"]},
     "/archive": {"intent": "archive", "capabilities": ["archive"]},
+    "/manual": {"intent": "manual", "capabilities": []},
     # Add more commands here.
 }
 
