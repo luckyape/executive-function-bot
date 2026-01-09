@@ -11,9 +11,10 @@ from firestore_client import get_db
 from config import get_config, is_safe_mode
 
 from decay import decay_job
-from telegram_utils import send_message_safe
+from telegram_utils import send_message_safe, split_message
 from router import route_update
 from commands.help import get_help_text
+from commands.manual import get_manual_text
 
 # Logger
 logging.basicConfig(level=logging.INFO)
@@ -102,6 +103,36 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool 
     _send(chat_id, "[SAFE MODE] Unknown command. Try: add <task>, list, done <fragment>.")
 
 
+def route_command(command: str, context: dict) -> str:
+    """
+    Routes a command to the correct handler.
+    """
+    if command == "/start":
+        return "Welcome! Tell me your Manifesto (Goal)."
+
+    if command == "/help":
+        return get_help_text()
+
+    if command == "/manual":
+        manual_text = get_manual_text()
+        chunks = split_message(manual_text)
+        for chunk in chunks:
+            _send(context["chat_id"], chunk)
+        return ""
+
+    if command.startswith("/scratch"):
+        from commands.scratch import handle_scratch_command
+        handle_scratch_command(context)
+        return ""
+
+    # Handle /memory (supports "/memory ..." subcommands)
+    if command.startswith("/memory"):
+        from commands.memory import handle_memory_command
+        return handle_memory_command(str(context["user_id"]), command)
+
+    return "Unknown command."
+
+
 @https_fn.on_request()
 def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     """
@@ -144,28 +175,8 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         # 5) Commands
         if text.startswith("/"):
             response_text = route_command(text, {"user_id": user_id, "chat_id": chat_id, "text": text})
-            _send(chat_id, response_text)
-            return https_fn.Response("ok", status=200)
-          
-        if text == "/start":
-            _send(chat_id, "Welcome! Tell me your Manifesto (Goal).")
-
-            return https_fn.Response("ok", status=200)
-
-        if text == "/help":
-            _send(chat_id, get_help_text())
-            return https_fn.Response("ok", status=200)
-
-        if text.startswith("/scratch"):
-            from commands.scratch import handle_scratch_command
-            handle_scratch_command(update.message.to_dict())
-            return https_fn.Response("ok", status=200)
-
-        # Handle /memory (supports "/memory ..." subcommands)
-        if text.startswith("/memory"):
-            from commands.memory import handle_memory_command
-            response_text = handle_memory_command(str(user_id), text)
-            _send(chat_id, response_text)
+            if response_text:
+                _send(chat_id, response_text)
             return https_fn.Response("ok", status=200)
 
         # 6) Safe mode forced

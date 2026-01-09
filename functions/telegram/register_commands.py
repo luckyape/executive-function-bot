@@ -24,6 +24,7 @@ async def main():
         BotCommand("help", "Show help"),
         BotCommand("list", "List pending tasks"),
         BotCommand("start", "Start the bot and set your manifesto"),
+        BotCommand("manual", "Show the user manual"),
     ]
     await bot.set_my_commands(commands)
     print("Commands registered successfully.")
