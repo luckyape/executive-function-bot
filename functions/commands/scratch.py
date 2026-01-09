@@ -3,17 +3,17 @@ from ..telegram_utils import send_message
 from ..firestore_client import db
 from firebase_admin import firestore
 
-def handle_scratch_command(message):
+def handle_scratch_command(context: dict):
     """
     Handles the /scratch command.
     """
-    text = message.get('text')
-    chat_id = message['chat']['id']
-    user_id = message['from']['id']
+    chat_id = context["chat_id"]
+    user_id = context["user_id"]
+    payload = context.get("payload", "")
 
-    parts = text.split(' ', 2)
-    subcommand = parts[1] if len(parts) > 1 else 'show'
-    args = parts[2] if len(parts) > 2 else ''
+    parts = payload.split(' ', 1)
+    subcommand = parts[0].lower() if parts[0] else 'show'
+    args = parts[1] if len(parts) > 1 else ''
 
     repo = ScratchRepo(str(user_id))
 

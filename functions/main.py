@@ -103,34 +103,64 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool 
     _send(chat_id, "[SAFE MODE] Unknown command. Try: add <task>, list, done <fragment>.")
 
 
-def route_command(command: str, context: dict) -> str:
+def handle_intent(intent: str, context: dict) -> str | None:
     """
-    Routes a command to the correct handler.
+    Routes an intent to the correct handler.
+    Returns a string for simple text responses, or None if the handler sends its own messages.
     """
-    if command == "/start":
+    # Simple text responses
+    if intent == "start":
         return "Welcome! Tell me your Manifesto (Goal)."
-
-    if command == "/help":
+    if intent == "help":
         return get_help_text()
+    if intent == "unknown_command":
+        return f"I don't recognize that command '{context.get('payload', '')}'. Try /help."
 
-    if command == "/manual":
+    # Handlers that send their own messages
+    if intent == "manual":
         manual_text = get_manual_text()
         chunks = split_message(manual_text)
         for chunk in chunks:
             _send(context["chat_id"], chunk)
-        return ""
+        return None
 
-    if command.startswith("/scratch"):
+    if intent == "scratch":
         from commands.scratch import handle_scratch_command
         handle_scratch_command(context)
-        return ""
+        return None
 
-    # Handle /memory (supports "/memory ..." subcommands)
-    if command.startswith("/memory"):
+    if intent == "memory":
         from commands.memory import handle_memory_command
-        return handle_memory_command(str(context["user_id"]), command)
+        return handle_memory_command(context)
 
-    return "Unknown command."
+    if intent == "list_tasks":
+        from commands.list import handle_list_command
+        handle_list_command(context)
+        return None
+
+    if intent == "recall":
+        from commands.recall import handle_recall_command
+        handle_recall_command(context)
+        return None
+
+    if intent == "archive":
+        from commands.archive import handle_archive_command
+        handle_archive_command(context)
+        return None
+
+    if intent == "add_task":
+        from commands.add import handle_add_command
+        handle_add_command(context)
+        return None
+
+    if intent == "done_task":
+        from commands.done import handle_done_command
+        handle_done_command(context)
+        return None
+
+    # Fallback for intents that are routed but not yet implemented
+    # (e.g., list_tasks, recall, etc.)
+    return f"The '{intent}' command is not yet implemented."
 
 
 @https_fn.on_request()
@@ -172,34 +202,36 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         user_id = update.message.from_user.id
         text = update.message.text
 
-        # 5) Commands
-        if text.startswith("/"):
-            response_text = route_command(text, {"user_id": user_id, "chat_id": chat_id, "text": text})
-            if response_text:
-                _send(chat_id, response_text)
-            return https_fn.Response("ok", status=200)
-
-        # 6) Safe mode forced
+        # 5) Safe mode forced (check before routing)
         if is_safe_mode():
             handle_safe_mode(user_id, chat_id, text)
             return https_fn.Response("ok", status=200)
 
-        # 7) Routing (command gating)
+        # 6) Routing
         route = route_update(text)
         intent = route.get("intent", "chat")
         capabilities = route.get("capabilities", [])
-        payload = route.get("payload", text)
+        payload = route.get("payload", "")
 
-        # 8) Unknown commands
-        if intent == "unknown_command":
-            _send(chat_id, "I don't recognize that command. Try /recall, /scratch, or /archive.")
+        context = {
+            "user_id": user_id,
+            "chat_id": chat_id,
+            "text": text,
+            "payload": payload,
+        }
+
+        # 7) Intent-based command handlers (non-LLM)
+        if intent != "chat":
+            response_text = handle_intent(intent, context)
+            if response_text:
+                _send(chat_id, response_text)
             return https_fn.Response("ok", status=200)
 
-        # 9) Normal mode: agent
+        # 8) LLM-based chat and tool usage
         try:
             response_text = agent.generate_response_with_tools(
                 user_id=str(user_id),
-                message_text=payload,
+                message_text=payload,  # Agent sees the raw text for chat
                 intent=intent,
                 capabilities=capabilities,
             )
