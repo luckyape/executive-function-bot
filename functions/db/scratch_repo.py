@@ -1,12 +1,12 @@
 from datetime import datetime
 from firebase_admin import firestore
-from firestore_client import db
+from firestore_client import get_db
 
 class ScratchRepo:
     def __init__(self, user_id):
         if not user_id:
             raise ValueError("user_id must be provided")
-        self.collection = db.collection(f'users/{user_id}/scratch')
+        self.collection = get_db().collection(f'users/{user_id}/scratch')
 
     def add(self, text):
         """

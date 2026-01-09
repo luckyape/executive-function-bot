@@ -1,6 +1,6 @@
 from db.scratch_repo import ScratchRepo
 from telegram_utils import send_message
-from firestore_client import db
+from firestore_client import get_db
 from firebase_admin import firestore
 
 def handle_scratch_command(context: dict):
@@ -69,6 +69,7 @@ def handle_scratch_command(context: dict):
 
         # This is a simplified promotion. A real implementation would use a proper repo
         # for the target tier.
+        db = get_db()
         target_collection = db.collection('tasks')
 
         promoted_task = {
