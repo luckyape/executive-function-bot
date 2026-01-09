@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import asyncio
 
@@ -8,7 +10,11 @@ from agent import Agent
 from router import route_command
 from firestore_client import get_db
 from config import get_config, is_safe_mode
-from telegram_utils import send_message_safe  # local helper (NOT the telegram package)
+
+from decay import decay_job
+from telegram_utils import send_message_safe
+from router import route_update
+from commands.help import get_help_text
 
 # Logger
 logging.basicConfig(level=logging.INFO)
@@ -49,7 +55,10 @@ def handle_safe_mode(user_id: int, chat_id: int, text: str, from_fallback: bool 
     from tools import get_manifesto, set_manifesto, add_task, get_pending_tasks, complete_task
 
     if from_fallback:
-        _send(chat_id, "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.")
+        _send(
+            chat_id,
+            "LLM is busy right now, so I'm in Safe Mode. You can still: add <task>, list, done <fragment>.",
+        )
 
     text_lower = (text or "").lower().strip()
 
@@ -100,7 +109,7 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     HTTP Cloud Function for Telegram Webhook.
     MUST always return 200 OK to Telegram to prevent retry storms.
     """
-    data = {}
+    data: dict = {}
     try:
         # 1) Health check
         if req.method == "GET" or req.args.get("ping"):
@@ -138,21 +147,58 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             response_text = route_command(text, {"user_id": user_id, "chat_id": chat_id, "text": text})
             _send(chat_id, response_text)
             return https_fn.Response("ok", status=200)
+          
+        if text == "/start":
+            _send(chat_id, "Welcome! Tell me your Manifesto (Goal).")
+
+            return https_fn.Response("ok", status=200)
+
+        if text == "/help":
+            _send(chat_id, get_help_text())
+            return https_fn.Response("ok", status=200)
+
+        if text.startswith("/scratch"):
+            from commands.scratch import handle_scratch_command
+            handle_scratch_command(update.message.to_dict())
+            return https_fn.Response("ok", status=200)
+
+        # Handle /memory (supports "/memory ..." subcommands)
+        if text.startswith("/memory"):
+            from commands.memory import handle_memory_command
+            response_text = handle_memory_command(str(user_id), text)
+            _send(chat_id, response_text)
+            return https_fn.Response("ok", status=200)
 
         # 6) Safe mode forced
         if is_safe_mode():
             handle_safe_mode(user_id, chat_id, text)
             return https_fn.Response("ok", status=200)
 
-        # 7) Normal mode: agent
+        # 7) Routing (command gating)
+        route = route_update(text)
+        intent = route.get("intent", "chat")
+        capabilities = route.get("capabilities", [])
+        payload = route.get("payload", text)
+
+        # 8) Unknown commands
+        if intent == "unknown_command":
+            _send(chat_id, "I don't recognize that command. Try /recall, /scratch, or /archive.")
+            return https_fn.Response("ok", status=200)
+
+        # 9) Normal mode: agent
         try:
-            response_text = agent.generate_response_with_tools(str(user_id), text)
+            response_text = agent.generate_response_with_tools(
+                user_id=str(user_id),
+                message_text=payload,
+                intent=intent,
+                capabilities=capabilities,
+            )
         except Exception as e:
             logger.error(f"Agent error: {e}", exc_info=True)
             handle_safe_mode(user_id, chat_id, text, from_fallback=True)
             return https_fn.Response("ok", status=200)
 
-        # 8) Rate-limit fallback (string contract)
+        # 10) Rate-limit fallback (string contract)
         if isinstance(response_text, str) and response_text.startswith("LLM is rate-limited"):
             handle_safe_mode(user_id, chat_id, text, from_fallback=True)
             return https_fn.Response("ok", status=200)
@@ -163,9 +209,9 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     except Exception as e:
         logger.error(f"Unhandled error in webhook: {e}", exc_info=True)
         try:
-            chat_id = (data.get("message", {}).get("chat", {}) or {}).get("id")
-            if chat_id:
-                _send(chat_id, "A critical error occurred.")
+            chat_id_fallback = (data.get("message", {}).get("chat", {}) or {}).get("id")
+            if chat_id_fallback:
+                _send(chat_id_fallback, "A critical error occurred.")
         except Exception:
             logger.error("Failed to notify user after unhandled error", exc_info=True)
 

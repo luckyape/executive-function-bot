@@ -1,138 +1,55 @@
-import logging
-from typing import Dict, Any, Callable
+from __future__ import annotations
 
-logger = logging.getLogger(__name__)
+from typing import List, Tuple, Dict, Any
 
-# A simple command router
-COMMAND_MAP: Dict[str, Callable[[Dict[str, Any]], str]] = {}
+# Single source of truth for command gating
+COMMAND_CONFIG: Dict[str, Dict[str, Any]] = {
+    "/recall": {"intent": "recall", "capabilities": ["recall"]},
+    "/scratch": {"intent": "scratch", "capabilities": ["scratch"]},
+    "/archive": {"intent": "archive", "capabilities": ["archive"]},
+    # Add more commands here.
+}
 
 
-def command(name: str):
+def route_update(text: str) -> dict:
     """
-    A decorator to register a command handler.
-    """
+    Routes a Telegram text message to the correct intent and capabilities.
 
-    def decorator(func: Callable[[Dict[str, Any]], str]):
-        COMMAND_MAP[name] = func
-        return func
-
-    return decorator
-
-
-def route_command(text: str, context: Dict[str, Any]) -> str:
-    """
-    Routes a command to the appropriate handler.
+    Contract:
+      - Non-command text => intent "chat", no capabilities, payload is the full text
+      - Known command => intent + capabilities from COMMAND_CONFIG, payload is the remainder
+      - Unknown /command => intent "unknown_command", payload is the command token
     """
     if not text:
-        return "No command provided."
+        return {"intent": "chat", "capabilities": [], "payload": ""}
 
-    parts = text.strip().split()
-    command_word = parts[0].lower()
+    stripped = text.strip()
 
-    # Strip leading slash to get the command name
-    command_name = command_word[1:] if command_word.startswith('/') else command_word
+    # Not a command -> plain chat
+    if not stripped.startswith("/"):
+        return {"intent": "chat", "capabilities": [], "payload": text}
 
-    if command_name in COMMAND_MAP:
-        handler = COMMAND_MAP[command_name]
-        return handler(context)
-    else:
-        return f"Unknown command: {command_word}"
+    parts = stripped.split(maxsplit=1)
+    command = parts[0].lower()
+    payload = parts[1] if len(parts) > 1 else ""
 
+    config = COMMAND_CONFIG.get(command)
+    if config:
+        return {
+            "intent": config["intent"],
+            "capabilities": list(config.get("capabilities", [])),
+            "payload": payload,
+        }
 
-from tools import (
-    add_to_scratchpad,
-    get_scratchpad,
-    clear_scratchpad,
-    recall_from_archive,
-    get_memory_mode,
-    set_memory_mode,
-    promote_from_scratchpad
-)
+    # Starts with / but not a known command
+    return {"intent": "unknown_command", "capabilities": [], "payload": command}
 
 
-@command("start")
-def start_command(context: Dict[str, Any]) -> str:
+def route_message(message_text: str) -> Tuple[str, List[str], str]:
     """
-    Returns the welcome message.
+    Backward-compatible wrapper returning (intent, capabilities, payload).
+
+    This keeps older call sites working while everything moves to route_update().
     """
-    return "Welcome! Tell me your Manifesto (Goal)."
-
-
-@command("memory")
-def memory_command(context: Dict[str, Any]) -> str:
-    """
-    Manages the user's memory mode.
-    Usage: /memory [off|hot|hot+projects|strict]
-    """
-    user_id = context.get("user_id")
-    text = context.get("text", "")
-    parts = text.strip().split(maxsplit=1)
-
-    if len(parts) < 2:
-        current_mode = get_memory_mode(user_id)
-        return f"Current memory mode: {current_mode}. To change it, use /memory <mode>."
-
-    new_mode = parts[1].lower()
-    return set_memory_mode(user_id, new_mode)
-
-
-@command("recall")
-def recall_command(context: Dict[str, Any]) -> str:
-    """
-    Searches the user's archive.
-    Usage: /recall <query>
-    """
-    user_id = context.get("user_id")
-    text = context.get("text", "")
-    parts = text.strip().split(maxsplit=1)
-
-    if len(parts) < 2:
-        return "Usage: /recall <query>"
-
-    query = parts[1]
-    return recall_from_archive(user_id, query)
-
-
-@command("scratch")
-def scratch_command(context: Dict[str, Any]) -> str:
-    """
-    Manages the user's scratchpad.
-    Usage: /scratch [add <note>|show|clear|promote <index>]
-    """
-    user_id = context.get("user_id")
-    text = context.get("text", "")
-    parts = text.strip().split(maxsplit=2)
-
-    if len(parts) < 2:
-        return get_scratchpad(user_id)
-
-    subcommand = parts[1].lower()
-
-    if subcommand == "add":
-        if len(parts) < 3:
-            return "Usage: /scratch add <note>"
-        note = parts[2]
-        return add_to_scratchpad(user_id, note)
-    elif subcommand == "show":
-        return get_scratchpad(user_id)
-    elif subcommand == "clear":
-        return clear_scratchpad(user_id)
-    elif subcommand == "promote":
-        if len(parts) < 3:
-            return "Usage: /scratch promote <number>"
-        try:
-            # The tool now expects a 1-based index
-            index = int(parts[2])
-            return promote_from_scratchpad(user_id, index)
-        except ValueError:
-            return "Invalid note number. Please provide a number."
-    else:
-        return "Unknown subcommand for /scratch. Use 'add', 'show', 'clear', or 'promote'."
-
-
-@command("help")
-def help_command(context: Dict[str, Any]) -> str:
-    """
-    Returns a list of available commands.
-    """
-    return "Available commands: /start, /help, /scratch, /recall, /memory"
+    route = route_update(message_text or "")
+    return route.get("intent", "chat"), route.get("capabilities", []), route.get("payload", "")
