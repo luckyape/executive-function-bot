@@ -30,7 +30,14 @@ def send_message(chat_id: int, text: str) -> None:
     try:
         result = send_message_safe(bot, chat_id, text)
         if asyncio.iscoroutine(result):
-            asyncio.run(result)
+            # Check if there's already a running event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're in an event loop, create a task
+                asyncio.create_task(result)
+            except RuntimeError:
+                # No running loop, safe to use asyncio.run()
+                asyncio.run(result)
     except RuntimeError as e:
         logger.error(f"Failed to send message (RuntimeError): {e}", exc_info=True)
     except Exception as e:
