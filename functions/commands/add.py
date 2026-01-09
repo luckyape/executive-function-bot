@@ -1,6 +1,6 @@
 from __future__ import annotations
-from ..telegram_utils import send_message
-from ..tools import add_task
+from telegram_utils import send_message
+from tools import add_task
 
 def handle_add_command(context: dict) -> None:
     """
