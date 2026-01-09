@@ -13,11 +13,42 @@ env:
   CLOUD_RUN_REGION: us-central1
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          cd functions
+          python -m venv venv
+          source venv/bin/activate
+          pip install -U pip
+          pip install -r requirements.txt
+          # if you have dev deps split out, prefer:
+          # pip install -r requirements-dev.txt
+
+      - name: Run Tests
+        run: |
+          cd functions
+          source venv/bin/activate
+          pytest -q
+        env:
+          CLOUDSDK_PYTHON: ${{ github.workspace }}/functions/venv/bin/python
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v2
@@ -26,10 +57,12 @@ jobs:
           service_account: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
           create_credentials_file: true
           export_environment_variables: true
+
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.FIREBASE_PROJECT_ID }}
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
