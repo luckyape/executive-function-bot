@@ -4,11 +4,21 @@ from typing import List, Tuple, Dict, Any
 
 # Single source of truth for command gating
 COMMAND_CONFIG: Dict[str, Dict[str, Any]] = {
+    # Core commands
+    "/start": {"intent": "start", "capabilities": []},
+    "/help": {"intent": "help", "capabilities": []},
+    "/manual": {"intent": "manual", "capabilities": []},
+
+    # Tasking
+    "/list": {"intent": "list_tasks", "capabilities": ["task_read"]},
+    "/done": {"intent": "done_task", "capabilities": ["task_write"]},
+    "/add": {"intent": "add_task", "capabilities": ["task_write"]},
+
+    # Memory
     "/recall": {"intent": "recall", "capabilities": ["recall"]},
     "/scratch": {"intent": "scratch", "capabilities": ["scratch"]},
     "/archive": {"intent": "archive", "capabilities": ["archive"]},
-    "/manual": {"intent": "manual", "capabilities": []},
-    # Add more commands here.
+    "/memory": {"intent": "memory", "capabilities": []},
 }
 
 

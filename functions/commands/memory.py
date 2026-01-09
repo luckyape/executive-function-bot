@@ -3,7 +3,7 @@ from __future__ import annotations
 from db.user_settings_repo import get_memory_mode, set_memory_mode, MemoryMode
 
 
-def handle_memory_command(user_id: str, text: str) -> str:
+def handle_memory_command(context: dict) -> str:
     """
     Handles the /memory command.
     - /memory: Shows current mode.
@@ -11,23 +11,19 @@ def handle_memory_command(user_id: str, text: str) -> str:
 
     Modes come from MemoryMode enum (expected values: off, hot, projects, strict).
     """
-    parts = (text or "").strip().lower().split()
+    user_id = str(context["user_id"])
+    payload = context.get("payload", "")
+    parts = payload.strip().lower().split()
+
+    # /memory (no payload)
     if not parts:
-        return "Usage: /memory [off|hot|projects|strict]"
-
-    if parts[0] != "/memory":
-        return "Invalid command."
-
-    # /memory
-    if len(parts) == 1:
         current_mode = get_memory_mode(user_id)
-        # current_mode should be MemoryMode; if repo returns a string, this still works
         value = current_mode.value if hasattr(current_mode, "value") else str(current_mode)
         return f"Memory mode is currently set to: {value}"
 
     # /memory <mode>
-    if len(parts) == 2:
-        new_mode_str = parts[1]
+    if len(parts) == 1:
+        new_mode_str = parts[0]
         try:
             new_mode = MemoryMode(new_mode_str)
         except ValueError:

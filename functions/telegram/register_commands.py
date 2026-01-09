@@ -21,10 +21,16 @@ async def main():
 
     bot = Bot(token=token)
     commands = [
-        BotCommand("help", "Show help"),
-        BotCommand("list", "List pending tasks"),
-        BotCommand("start", "Start the bot and set your manifesto"),
-        BotCommand("manual", "Show the user manual"),
+        BotCommand("start", "Begin your journey and set your Manifesto."),
+        BotCommand("help", "Get help and see examples."),
+        BotCommand("manual", "Read the full user manual."),
+        BotCommand("add", "Add a new task."),
+        BotCommand("list", "List your pending tasks."),
+        BotCommand("done", "Complete a task."),
+        BotCommand("scratch", "Manage your scratchpad."),
+        BotCommand("recall", "Recall memories and notes."),
+        BotCommand("archive", "Interact with your archive."),
+        BotCommand("memory", "Manage your memory settings."),
     ]
     await bot.set_my_commands(commands)
     print("Commands registered successfully.")
