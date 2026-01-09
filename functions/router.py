@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 # Single source of truth for command gating
-COMMAND_CONFIG = {
+COMMAND_CONFIG: Dict[str, Dict[str, Any]] = {
     "/recall": {"intent": "recall", "capabilities": ["recall"]},
     "/scratch": {"intent": "scratch", "capabilities": ["scratch"]},
     "/archive": {"intent": "archive", "capabilities": ["archive"]},

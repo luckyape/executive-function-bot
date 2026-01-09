@@ -68,7 +68,7 @@ def get_pending_tasks(user_id: str) -> List[Dict[str, Any]]:
     """
     Returns a list of incomplete tasks.
 
-    Best-effort extras (from the audit-trail branch):
+    Best-effort extras:
       - cache last listed task IDs so UX can support '#N' completion reliably
       - log retrieval with the returned IDs
     """
@@ -156,7 +156,6 @@ def recall(user_id: str, query: str) -> str:
     return "\n".join(formatted_results)
 
 
-# Map of tool names to functions for easy execution
 TOOL_MAP = {
     "get_manifesto": get_manifesto,
     "set_manifesto": set_manifesto,
@@ -165,73 +164,3 @@ TOOL_MAP = {
     "complete_task": complete_task,
     "recall": recall,
 }
-
-# Definitions for Gemini (if you’re using explicit JSON schema tools anywhere)
-TOOL_DEFINITIONS = [
-    {
-        "name": "get_manifesto",
-        "description": "Get the user's manifesto or 'North Star' goal.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {"user_id": {"type": "STRING", "description": "The Telegram user ID"}},
-            "required": ["user_id"],
-        },
-    },
-    {
-        "name": "set_manifesto",
-        "description": "Set or update the user's manifesto or 'North Star' goal.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "user_id": {"type": "STRING", "description": "The Telegram user ID"},
-                "manifesto": {"type": "STRING", "description": "The new manifesto content"},
-            },
-            "required": ["user_id", "manifesto"],
-        },
-    },
-    {
-        "name": "add_task",
-        "description": "Add a new task to the user's list.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "user_id": {"type": "STRING", "description": "The Telegram user ID"},
-                "description": {"type": "STRING", "description": "The task description"},
-            },
-            "required": ["user_id", "description"],
-        },
-    },
-    {
-        "name": "get_pending_tasks",
-        "description": "Get a list of pending tasks for the user.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {"user_id": {"type": "STRING", "description": "The Telegram user ID"}},
-            "required": ["user_id"],
-        },
-    },
-    {
-        "name": "complete_task",
-        "description": "Mark a task as completed. Can use a description fragment, '#N' from the last list, or empty to complete the sole task.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "user_id": {"type": "STRING", "description": "The Telegram user ID"},
-                "query": {"type": "STRING", "description": "The task identifier: description fragment, '#N', or empty."},
-            },
-            "required": ["user_id"],
-        },
-    },
-    {
-        "name": "recall",
-        "description": "Search the user's archive and return the most relevant stored items.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "user_id": {"type": "STRING", "description": "The Telegram user ID"},
-                "query": {"type": "STRING", "description": "Search query text"},
-            },
-            "required": ["user_id", "query"],
-        },
-    },
-]

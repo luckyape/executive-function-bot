@@ -141,9 +141,15 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         user_id = update.message.from_user.id
         text = update.message.text
 
-        # 5) Basic commands
+        # 5) Commands
+        if text.startswith("/"):
+            response_text = route_command(text, {"user_id": user_id, "chat_id": chat_id, "text": text})
+            _send(chat_id, response_text)
+            return https_fn.Response("ok", status=200)
+          
         if text == "/start":
             _send(chat_id, "Welcome! Tell me your Manifesto (Goal).")
+
             return https_fn.Response("ok", status=200)
 
         if text == "/help":
