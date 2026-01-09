@@ -1,6 +1,6 @@
-from ..db.scratch_repo import ScratchRepo
-from ..telegram_utils import send_message
-from ..firestore_client import db
+from db.scratch_repo import ScratchRepo
+from telegram_utils import send_message
+from firestore_client import db
 from firebase_admin import firestore
 
 def handle_scratch_command(context: dict):

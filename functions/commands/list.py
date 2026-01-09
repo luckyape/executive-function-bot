@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ..telegram_utils import send_message
-from ..tools import get_pending_tasks
+from telegram_utils import send_message
+from tools import get_pending_tasks
 
 
 def handle_list_command(context: dict) -> None:

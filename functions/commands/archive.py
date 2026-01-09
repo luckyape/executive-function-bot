@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ..telegram_utils import send_message
+from telegram_utils import send_message
 
 def handle_archive_command(context: dict) -> None:
     """

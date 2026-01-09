@@ -1,6 +1,6 @@
 from datetime import datetime
 from firebase_admin import firestore
-from ..firestore_client import db
+from firestore_client import db
 
 class ScratchRepo:
     def __init__(self, user_id):
