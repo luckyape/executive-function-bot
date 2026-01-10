@@ -4,10 +4,12 @@
 The bot was experiencing two critical issues in production:
 1. **Silent Failures**: When the Agent (LLM) crashed, it would return a static string "I encountered a temporary issue with my brain" instead of falling back to Safe Mode.
 2. **Critical Crashes**: The `complete_task` command would crash with a "Critical Error" when processing older task lists due to a timezone mismatch in timestamp calculations.
+3. **Deployment Issues**: The project used `.venv` while Firebase tooling expected `venv`, causing deployment failures.
 
 ## Root Cause Analysis
 1. **Agent Error Swallowing**: `functions/agent.py` was catching all exceptions and returning a user-friendly string. This prevented `main.py` from detecting the error and triggering the `handle_safe_mode` fallback logic.
 2. **Naive vs Aware Timestamps**: `functions/repos/tasks_repo.py` was subtracting a timezone-naive timestamp (from older Firestore records) from a timezone-aware current time, causing a `TypeError`.
+3. **CI/CD Configuration**: GitHub Actions failed to run tests because it lacked the production secrets (`TELEGRAM_TOKEN`), and the tests were not mocking the configuration.
 
 ## Fixes Implemented
 
@@ -23,22 +25,25 @@ The bot was experiencing two critical issues in production:
 
 ### 3. Test Suite Enhancements
 - **File**: `functions/test_endpoints.py`
-- **Change**: Rewrote the integration tests to use direct function invocation (mocking `main.telegram_webhook`).
+- **Change**: Rewrote the integration tests to use direct function invocation (mocking `main.telegram_webhook`) and patched `main.TELEGRAM_TOKEN` to ensure tests pass in CI environments without secrets.
 - **Coverage**:
     - ✅ **Happy Path**: `/start` works.
     - ✅ **Agent Failure**: Confirmed fallback to "Safe Mode" message.
     - ✅ **Critical Failure**: Confirmed fallback to "Critical Error" message (for routing crashes).
     - ✅ **Data Integrity**: Validated handling of malformed JSON and empty payloads.
 
+### 4. Infrastructure
+- **Virtual Env**: Renamed `.venv` to `venv` to align with Firebase default expectations (Manual action required if not already done by script).
+
 ## Verification
-Ran the full regression suite:
+Ran the full regression suite locally without `.env` loaded:
 ```
 ✓ Agent failure correctly triggered the 'Safe Mode' fallback message.
 ✓ Critical failure correctly triggered the 'critical error' message.
-✓ All 6 tests passed in ~1.5s
+✓ All 6 tests passed in ~1.4s
 ```
 
 ## Impact
 - **Reliability**: The bot no longer silently fails or crashes on common date operations.
 - **UX**: Users are correctly downgraded to Safe Mode (where they can still manage tasks) instead of getting a "brain dead" message.
-- **Maintainability**: A robust, fast-running test suite now protects these critical paths.
+- **Maintainability**: A robust, fast-running, and environment-agnostic test suite now protects these critical paths.

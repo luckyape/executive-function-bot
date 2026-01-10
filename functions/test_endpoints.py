@@ -17,6 +17,7 @@ sys.modules['agent'] = MagicMock()
 sys.modules['agent'].Agent = mock_agent_class
 
 # Now we can safely import main
+import main 
 from main import telegram_webhook
 
 class MockRequest:
@@ -31,6 +32,15 @@ class MockRequest:
         return self._json
 
 class TestEndpoints(unittest.TestCase):
+    
+    def setUp(self):
+        # PATCH: Force TELEGRAM_TOKEN to be set so main.py checks pass
+        # This fixes the "Config key 'TELEGRAM_TOKEN' not found" error in CI
+        self.original_token = main.TELEGRAM_TOKEN
+        main.TELEGRAM_TOKEN = "TEST_TOKEN"
+
+    def tearDown(self):
+        main.TELEGRAM_TOKEN = self.original_token
 
     def test_webhook_get(self):
         """Tests that GET requests to the webhook return 200 OK."""
