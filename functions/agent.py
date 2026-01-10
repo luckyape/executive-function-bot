@@ -19,7 +19,7 @@ class Agent:
     def __init__(self):
         self.api_key = get_config("GEMINI_API_KEY")
         self.client = None
-        self.model = "gemini-3-flash"
+        self.model = "gemini-3-flash-preview"
 
         self.system_instruction = (
             "You are a proactive Executive Coach and expert guide for this Life OS app (Version 3.0-flash). "
