@@ -265,8 +265,9 @@ class Agent:
             return "I hit a temporary issue talking to Gemini. Try again shortly (tasks still work)."
 
         except Exception as e:
+            # Propagate unknown errors so main.py can trigger Safe Mode
             logger.error(f"Gemini General Exception: {e}", exc_info=True)
-            return "I encountered a temporary issue with my brain. Please try again."
+            raise e
 
     def generate_morning_briefing(self, user_id: str) -> str:
         client = self._get_client()

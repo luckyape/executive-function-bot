@@ -95,6 +95,10 @@ def complete_user_task(user_id: str, query: Optional[str] = None) -> str:
             last_listed_ts = user_data.get("last_listed_tasks_timestamp")
 
             if last_listed_ts:
+                # FIX: Handle naive datetimes to avoid "offset-naive and offset-aware" errors
+                if last_listed_ts.tzinfo is None:
+                    last_listed_ts = last_listed_ts.replace(tzinfo=datetime.timezone.utc)
+                
                 now = datetime.datetime.now(datetime.timezone.utc)
                 cache_age = now - last_listed_ts
                 if cache_age.total_seconds() > 3600:
