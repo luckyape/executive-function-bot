@@ -7,11 +7,11 @@
   # Use https://search.nixos.org/packages to find packages
   packages = with pkgs; [
     (python311.withPackages (ps: with ps; [
-      firebase-admin
-      firebase-functions
-      google-generativeai
-      python-telegram-bot
-      python-dotenv
+      ps."firebase-admin"
+      ps."firebase-functions"
+      ps."google-generativeai"
+      ps."python-telegram-bot"
+      ps."python-dotenv"
     ]))
   ];
 
