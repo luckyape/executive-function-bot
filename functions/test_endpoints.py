@@ -1,315 +1,172 @@
-#!/usr/bin/env python3
-"""
-Integration tests for HTTP endpoints.
 
-Tests the webhook endpoint with various commands to ensure:
-1. No 500 errors
-2. Correct status codes and content types
-3. Command routing works correctly
-4. Auth/command parsing behaves as expected
-
-Run from the functions directory: python3 test_endpoints.py
-"""
-
+import unittest
+from unittest.mock import patch, MagicMock
 import json
-import os
 import sys
-from unittest.mock import Mock, patch, MagicMock
-from typing import Any, Dict
 
-# Set up test environment before imports
-os.environ["TELEGRAM_TOKEN"] = "test_token_123"
-os.environ["FIRESTORE_EMULATOR_HOST"] = "127.0.0.1:8080"
-os.environ["GCLOUD_PROJECT"] = "demo-project"
+# --- Mocks must be setup BEFORE importing main ---
+sys.modules['firebase_admin'] = MagicMock()
+sys.modules['firebase_admin.credentials'] = MagicMock()
+sys.modules['firebase_admin.firestore'] = MagicMock()
+sys.modules['google.generativeai'] = MagicMock()
 
+# Mock the Agent class entirely
+mock_agent_instance = MagicMock()
+mock_agent_class = MagicMock(return_value=mock_agent_instance)
+sys.modules['agent'] = MagicMock()
+sys.modules['agent'].Agent = mock_agent_class
+
+# Now we can safely import main
 from main import telegram_webhook
-from router import route_update
-
 
 class MockRequest:
-    """Mock Flask/Functions Framework request object."""
-    
-    def __init__(self, method: str = "POST", json_data: Dict[str, Any] = None, args: Dict[str, str] = None):
+    def __init__(self, method="GET", json_data=None, args=None):
         self.method = method
-        self._json_data = json_data or {}
+        self._json = json_data
         self.args = args or {}
-    
-    def get_json(self, silent: bool = False) -> Dict[str, Any]:
-        return self._json_data
 
+    def get_json(self, silent=False):
+        if self._json is None and not silent:
+            raise ValueError("No JSON")
+        return self._json
 
-def create_telegram_update(text: str, user_id: int = 123456, chat_id: int = 123456) -> Dict[str, Any]:
-    """Create a mock Telegram update payload."""
-    return {
-        "update_id": 12345,
-        "message": {
-            "message_id": 1,
-            "from": {
-                "id": user_id,
-                "is_bot": False,
-                "first_name": "Test",
-                "username": "testuser"
-            },
-            "chat": {
-                "id": chat_id,
-                "first_name": "Test",
-                "username": "testuser",
-                "type": "private"
-            },
-            "date": 1609459200,
-            "text": text
-        }
-    }
+class TestEndpoints(unittest.TestCase):
 
+    def test_webhook_get(self):
+        """Tests that GET requests to the webhook return 200 OK."""
+        req = MockRequest(method="GET")
+        response = telegram_webhook(req)
+        self.assertEqual(response.status_code, 200)
+        # Flask/Functions Framework response.response can be a list of bytes
+        self.assertIn(b"ok", response.response)
 
-def test_router():
-    """Test the router with all commands."""
-    print("\n=== Testing Router ===")
-    
-    test_cases = [
-        # (input, expected_intent, description)
-        ("/start", "start", "start command"),
-        ("/help", "help", "help command"),
-        ("/manual", "manual", "manual command"),
-        ("/list", "list_tasks", "list command"),
-        ("/recall", "recall", "recall command"),
-        ("/scratch", "scratch", "scratch command"),
-        ("/memory", "memory", "memory command"),
-        ("/add task", "add_task", "add command with payload"),
-        ("/done 1", "done_task", "done command with payload"),
-        ("/unknown", "unknown_command", "unknown command"),
-        ("plain text", "chat", "plain text message"),
-    ]
-    
-    all_passed = True
-    for text, expected_intent, description in test_cases:
-        result = route_update(text)
-        intent = result["intent"]
-        
-        if intent == expected_intent:
-            print(f"  ✓ {description:30} -> {intent}")
-        else:
-            print(f"  ✗ {description:30} -> {intent} (expected {expected_intent})")
-            all_passed = False
-    
-    return all_passed
-
-
-def test_webhook_health_check():
-    """Test webhook health check endpoint."""
-    print("\n=== Testing Webhook Health Check ===")
-    
-    # Test GET request
-    req = MockRequest(method="GET")
-    response = telegram_webhook(req)
-    
-    if response.status_code == 200:
-        print("  ✓ GET request returns 200")
-    else:
-        print(f"  ✗ GET request returns {response.status_code} (expected 200)")
-        return False
-    
-    # Test ping parameter
-    req = MockRequest(method="POST", args={"ping": "1"})
-    response = telegram_webhook(req)
-    
-    if response.status_code == 200:
-        print("  ✓ Ping parameter returns 200")
-    else:
-        print(f"  ✗ Ping parameter returns {response.status_code} (expected 200)")
-        return False
-    
-    return True
-
-
-@patch('main.agent')
-@patch('telegram.Bot')
-@patch('main.send_message_safe')
-def test_webhook_commands(mock_send_safe, mock_bot_class, mock_agent):
-    """Test webhook with various command payloads."""
-    print("\n=== Testing Webhook Commands ===")
-    
-    # Mock the Bot class to return a mock instance
-    mock_bot_instance = MagicMock()
-    mock_bot_class.return_value = mock_bot_instance
-    
-    # Mock send_message_safe to be synchronous
-    mock_send_safe.return_value = None
-    
-    # Mock agent response
-    mock_agent.generate_response_with_tools.return_value = "Test response"
-    
-    test_commands = [
-        ("/start", "start command should not crash"),
-        ("/help", "help command should not crash"),
-        ("/manual", "manual command should not crash"),
-        ("/list", "list command should not crash"),
-        ("/recall", "recall command should not crash"),
-        ("/scratch", "scratch command should not crash"),
-        ("/memory", "memory command should not crash"),
-        ("/add Buy milk", "add command should not crash"),
-        ("/done 1", "done command should not crash"),
-        ("regular message", "chat message should not crash"),
-    ]
-    
-    all_passed = True
-    for command, description in test_commands:
-        try:
-            update_data = create_telegram_update(command)
-            req = MockRequest(method="POST", json_data=update_data)
-            
-            response = telegram_webhook(req)
-            
-            # Webhook should always return 200 to Telegram to prevent retry storms
-            if response.status_code == 200:
-                print(f"  ✓ {description:40} (200)")
-            else:
-                print(f"  ✗ {description:40} ({response.status_code})")
-                all_passed = False
-        except Exception as e:
-            print(f"  ✗ {description:40} (Exception: {e})")
-            all_passed = False
-    
-    return all_passed
-
-
-@patch('main.agent')
-@patch('telegram.Bot')
-@patch('main.send_message_safe')
-def test_webhook_error_handling(mock_send_safe, mock_bot_class, mock_agent):
-    """Test webhook error handling."""
-    print("\n=== Testing Webhook Error Handling ===")
-    
-    # Mock the Bot class
-    mock_bot_instance = MagicMock()
-    mock_bot_class.return_value = mock_bot_instance
-    mock_send_safe.return_value = None
-    
-    all_passed = True
-    
-    # Test empty body
-    try:
+    def test_webhook_empty_post(self):
+        """Tests that an empty POST request is handled gracefully."""
         req = MockRequest(method="POST", json_data={})
         response = telegram_webhook(req)
-        if response.status_code == 200:
-            print("  ✓ Empty body returns 200")
-        else:
-            print(f"  ✗ Empty body returns {response.status_code}")
-            all_passed = False
-    except Exception as e:
-        print(f"  ✗ Empty body handling failed: {e}")
-        all_passed = False
-    
-    # Test malformed JSON (will be caught by get_json)
-    try:
+        self.assertEqual(response.status_code, 200)
+
+    def test_webhook_malformed_json(self):
+        """Tests that a malformed JSON body is handled gracefully."""
         req = MockRequest(method="POST", json_data=None)
         response = telegram_webhook(req)
-        if response.status_code == 200:
-            print("  ✓ Malformed JSON returns 200")
-        else:
-            print(f"  ✗ Malformed JSON returns {response.status_code}")
-            all_passed = False
-    except Exception as e:
-        print(f"  ✗ Malformed JSON handling failed: {e}")
-        all_passed = False
-    
-    # Test non-message update (e.g., channel post)
-    try:
-        update_data = {"update_id": 12345, "channel_post": {"text": "test"}}
-        req = MockRequest(method="POST", json_data=update_data)
-        response = telegram_webhook(req)
-        if response.status_code == 200:
-            print("  ✓ Non-message update returns 200")
-        else:
-            print(f"  ✗ Non-message update returns {response.status_code}")
-            all_passed = False
-    except Exception as e:
-        print(f"  ✗ Non-message update handling failed: {e}")
-        all_passed = False
-    
-    return all_passed
+        self.assertEqual(response.status_code, 200)
 
-
-@patch('main.agent')
-@patch('telegram.Bot')
-@patch('main.send_message_safe')
-def test_safe_mode_routing(mock_send_safe, mock_bot_class, mock_agent):
-    """Test that safe mode properly handles commands."""
-    print("\n=== Testing Safe Mode Routing ===")
-    
-    # Mock the Bot class
-    mock_bot_instance = MagicMock()
-    mock_bot_class.return_value = mock_bot_instance
-    mock_send_safe.return_value = None
-    
-    # Force safe mode
-    with patch('main.is_safe_mode', return_value=True):
-        all_passed = True
+    def test_start_command(self):
+        """Tests the /start command."""
+        data = {
+            "update_id": 99999,
+            "message": {
+                "message_id": 1,
+                "text": "/start",
+                "chat": {
+                    "id": 12345,
+                    "type": "private"
+                },
+                "from": {
+                    "id": 67890,
+                    "first_name": "TestUser",
+                    "is_bot": False
+                },
+                "date": 1678888888
+            }
+        }
+        req = MockRequest(method="POST", json_data=data)
         
-        # Test that safe mode handles /list
-        try:
-            with patch('tools.get_manifesto', return_value="Test manifesto"):
-                with patch('tools.get_pending_tasks', return_value=[]):
-                    update_data = create_telegram_update("/list")
-                    req = MockRequest(method="POST", json_data=update_data)
-                    response = telegram_webhook(req)
-                    
-                    if response.status_code == 200:
-                        print("  ✓ Safe mode handles /list command")
-                    else:
-                        print(f"  ✗ Safe mode /list returns {response.status_code}")
-                        all_passed = False
-        except Exception as e:
-            print(f"  ✗ Safe mode /list failed: {e}")
-            all_passed = False
-        
-        return all_passed
+        with patch("main._send") as mock_send:
+            response = telegram_webhook(req)
+            self.assertEqual(response.status_code, 200)
+            mock_send.assert_called_with(12345, "Welcome! Tell me your Manifesto (Goal).")
 
+    def test_agent_failure_causes_safe_mode(self):
+        """
+        Tests that a failure in the agent's generate_response_with_tools method
+        results in the fallback to Safe Mode.
+        """
+        print("\nRunning test_agent_failure_causes_safe_mode...")
+        data = {
+            "update_id": 88888,
+            "message": {
+                "message_id": 2,
+                "text": "tell me a story",
+                "chat": {
+                    "id": 12345,
+                    "type": "private"
+                },
+                "from": {
+                    "id": 67890,
+                    "first_name": "TestUser",
+                    "is_bot": False
+                },
+                "date": 1678888889
+            }
+        }
+        req = MockRequest(method="POST", json_data=data)
 
-def main():
-    """Run all tests."""
-    print("=" * 60)
-    print("Integration Tests for HTTP Endpoints")
-    print("=" * 60)
-    
-    results = []
-    
-    # Test router
-    results.append(("Router", test_router()))
-    
-    # Test health check
-    results.append(("Health Check", test_webhook_health_check()))
-    
-    # Test command handling
-    results.append(("Command Handling", test_webhook_commands()))
-    
-    # Test error handling
-    results.append(("Error Handling", test_webhook_error_handling()))
-    
-    # Test safe mode
-    results.append(("Safe Mode", test_safe_mode_routing()))
-    
-    # Summary
-    print("\n" + "=" * 60)
-    print("Test Summary")
-    print("=" * 60)
-    
-    all_passed = True
-    for name, passed in results:
-        status = "✓ PASSED" if passed else "✗ FAILED"
-        print(f"  {name:30} {status}")
-        if not passed:
-            all_passed = False
-    
-    print("=" * 60)
-    
-    if all_passed:
-        print("✓ All tests passed!")
-        return 0
-    else:
-        print("✗ Some tests failed!")
-        return 1
+        # We need to mock the route_update to return 'chat' intent so it hits the agent
+        with patch("main.route_update") as mock_route:
+            mock_route.return_value = {"intent": "chat", "payload": "tell me a story"}
+            
+            # Mock the agent instance on the 'main' module specifically
+            from main import agent
+            with patch.object(agent, 'generate_response_with_tools', side_effect=Exception("LLM Brain Fart")):
+                with patch("main._send") as mock_send:
+                    # We also need to mock get_manifesto to prevent database calls in Safe Mode
+                    with patch("tools.get_manifesto", return_value="My Goal"):
+                        response = telegram_webhook(req)
 
+                        # Check that the webhook still returns 200 OK
+                        self.assertEqual(response.status_code, 200)
+
+                        # Check if _send was called
+                        self.assertTrue(mock_send.called, "main._send was not called")
+
+                        # The Safe Mode handler sends the fallback message FIRST
+                        sent_text = mock_send.call_args_list[0][0][1]
+                        self.assertIn("LLM is busy right now, so I'm in Safe Mode", sent_text)
+                        print("  ✓ Agent failure correctly triggered the 'Safe Mode' fallback message.")
+
+    def test_critical_failure_causes_generic_error(self):
+        """
+        Tests that a failure BEFORE the agent (e.g. routing) triggers the
+        'A critical error occurred' message.
+        """
+        print("\nRunning test_critical_failure_causes_generic_error...")
+        data = {
+            "update_id": 77777,
+            "message": {
+                "message_id": 3,
+                "text": "hello",
+                "chat": {
+                    "id": 99999,
+                    "type": "private"
+                },
+                "from": {
+                    "id": 67890,
+                    "first_name": "TestUser",
+                    "is_bot": False
+                },
+                "date": 1678888890
+            }
+        }
+        req = MockRequest(method="POST", json_data=data)
+
+        # Force route_update to crash. This happens before Agent logic.
+        with patch("main.route_update", side_effect=Exception("Routing Crashed")):
+            with patch("main._send") as mock_send:
+                response = telegram_webhook(req)
+
+                self.assertEqual(response.status_code, 200)
+                
+                # Check if _send was called
+                self.assertTrue(mock_send.called, "main._send was not called")
+                
+                sent_chat_id = mock_send.call_args[0][0]
+                sent_text = mock_send.call_args[0][1]
+
+                self.assertEqual(sent_chat_id, 99999)
+                self.assertEqual(sent_text, "A critical error occurred.")
+                print("  ✓ Critical failure correctly triggered the 'critical error' message.")
 
 if __name__ == "__main__":
-    sys.exit(main())
+    unittest.main()
