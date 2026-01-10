@@ -122,14 +122,12 @@ class Agent:
         description = (tool.__doc__ or "").strip()
         return {
             "type": "function",
-            "function": {
-                "name": tool.__name__,
-                "description": description,
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                },
+            "name": tool.__name__,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
             },
         }
 
