@@ -1,9 +1,15 @@
-from __future__ import annotations
-from telegram_utils import send_message
-
 def handle_recall_command(context: dict) -> None:
     """
     Handles the /recall command.
     """
-    chat_id = context["chat_id"]
-    send_message(chat_id, "The /recall command is not yet implemented.")
+    from telegram_utils import send_message
+    
+    send_message(context["chat_id"], "To recall memories, use: /recall <query>\nExample: /recall project alpha")
+
+def handle_archive_command(context: dict) -> None:
+    """
+    Handles the /archive command.
+    """
+    from telegram_utils import send_message
+    
+    send_message(context["chat_id"], "To search your archive, use: /archive <query>\nExample: /archive taxes")

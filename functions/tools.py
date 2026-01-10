@@ -10,6 +10,7 @@ from firestore_client import get_db
 from audit.logger import log_tool_call, log_retrieval
 
 from repos import manifesto_repo, tasks_repo
+from db.scratch_repo import ScratchRepo
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,35 @@ def recall(user_id: str, query: str) -> str:
     return "\n".join(formatted_results)
 
 
+@tool_audit_decorator
+def scratch(user_id: str, action: str, content: str = None) -> str:
+    """
+    Manages the scratchpad (quick notes).
+    Actions: 'add', 'read', 'clear'.
+    """
+    repo = ScratchRepo(user_id)
+    if action == "add":
+        if not content:
+            return "Content is required to add a note."
+        scratch_id = repo.add(content)
+        return f"Added note to scratchpad. ID: {scratch_id}"
+    elif action == "read":
+        entries = repo.get_all(limit=5)
+        if not entries:
+            return "Scratchpad is empty."
+        return "\n".join([f"- {e.to_dict().get('text')}" for e in entries])
+    elif action == "clear":
+        repo.clear_all()
+        return "Scratchpad cleared."
+    return f"Unknown action: {action}"
+
+@tool_audit_decorator
+def archive(user_id: str, query: str) -> str:
+    """
+    Searches the user's archive for a given query.
+    """
+    return recall(user_id, query)
+
 TOOL_MAP = {
     "get_manifesto": get_manifesto,
     "set_manifesto": set_manifesto,
@@ -163,4 +193,6 @@ TOOL_MAP = {
     "get_pending_tasks": get_pending_tasks,
     "complete_task": complete_task,
     "recall": recall,
+    "scratch": scratch,
+    "archive": archive,
 }
