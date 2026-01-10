@@ -120,9 +120,15 @@ class Agent:
             if param.default is inspect._empty:
                 required.append(name)
         description = (tool.__doc__ or "").strip()
+        tool_name = getattr(tool, "__name__", None) or getattr(tool, "__qualname__", None)
+        if not tool_name:
+            tool_name = f"tool_{id(tool)}"
+            logger.warning("Tool name missing; using fallback %s", tool_name)
+        elif not isinstance(tool_name, str):
+            tool_name = str(tool_name)
         return {
             "type": "function",
-            "name": tool.__name__,
+            "name": tool_name,
             "description": description,
             "parameters": {
                 "type": "object",
