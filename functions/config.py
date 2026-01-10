@@ -19,8 +19,8 @@ def _parse_runtime_config(key: str) -> str:
         # key input: "TELEGRAM_TOKEN" -> we look for "telegram" -> "token"
         if key == "TELEGRAM_TOKEN":
             return config.get("telegram", {}).get("token")
-        elif key == "GEMINI_API_KEY":
-            return config.get("gemini", {}).get("key")
+        elif key == "OPENAI_API_KEY":
+            return config.get("openai", {}).get("key")
     except Exception as e:
         logger.warning(f"Failed to parse CLOUD_RUNTIME_CONFIG: {e}")
 

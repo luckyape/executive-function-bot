@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class Agent:
     def __init__(self):
-        self.api_key = get_config("GEMINI_API_KEY")
+        self.api_key = get_config("OPENAI_API_KEY")
         self.client = None
         self.model = "gemini-3-flash-preview"
 
@@ -44,10 +44,10 @@ class Agent:
             return self.client
 
         if not self.api_key:
-            self.api_key = get_config("GEMINI_API_KEY")
+            self.api_key = get_config("OPENAI_API_KEY")
 
         if not self.api_key:
-            logger.warning("GEMINI_API_KEY not set. Agent will fail to generate responses.")
+            logger.warning("OPENAI_API_KEY not set. Agent will fail to generate responses.")
             return None
 
         try:
