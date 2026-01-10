@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import inspect
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, get_args, get_origin
 
-from google import genai
-from google.genai import types
-from google.api_core import exceptions
+from openai import APIConnectionError, APIError, OpenAI, RateLimitError
 
 from tools import get_manifesto, get_pending_tasks
 from config import get_config, is_safe_mode
@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 class Agent:
     def __init__(self):
-        self.api_key = get_config("GEMINI_API_KEY")
+        self.api_key = get_config("OPENAI_API_KEY")
         self.client = None
-        self.model = "gemini-3-flash-preview"
+        self.model = "gpt-4.1-mini"
 
         self.system_instruction = (
             "You are a proactive Executive Coach and expert guide for this Life OS app (Version 3.0-flash). "
@@ -44,47 +44,26 @@ class Agent:
             return self.client
 
         if not self.api_key:
-            self.api_key = get_config("GEMINI_API_KEY")
+            self.api_key = get_config("OPENAI_API_KEY")
 
         if not self.api_key:
-            logger.warning("GEMINI_API_KEY not set. Agent will fail to generate responses.")
+            logger.warning("OPENAI_API_KEY not set. Agent will fail to generate responses.")
             return None
 
         try:
-            self.client = genai.Client(api_key=self.api_key)
+            self.client = OpenAI(api_key=self.api_key)
         except Exception as e:
-            logger.error(f"Failed to initialize GenAI Client: {e}", exc_info=True)
+            logger.error(f"Failed to initialize OpenAI Client: {e}", exc_info=True)
             return None
 
         return self.client
 
     def _extract_function_calls(self, response: Any) -> List[Any]:
-        """
-        Defensive extraction across SDK response shapes.
-        Returns a list of function_call objects.
-        """
         calls: List[Any] = []
-
-        try:
-            parts = getattr(response, "parts", None)
-
-            # Some SDK shapes: response.candidates[0].content.parts
-            if parts is None:
-                cands = getattr(response, "candidates", None)
-                if cands:
-                    content = getattr(cands[0], "content", None)
-                    parts = getattr(content, "parts", None)
-
-            if not parts:
-                return calls
-
-            for p in parts:
-                fc = getattr(p, "function_call", None)
-                if fc:
-                    calls.append(fc)
-        except Exception:
-            return calls
-
+        outputs = getattr(response, "output", None) or []
+        for item in outputs:
+            if getattr(item, "type", None) == "function_call":
+                calls.append(item)
         return calls
 
     def _args_to_dict(self, fc_args: Any) -> Dict[str, Any]:
@@ -92,18 +71,80 @@ class Agent:
             return {}
         if isinstance(fc_args, dict):
             return fc_args
-        # google genai often uses a proto-ish map that supports to_dict
         try:
-            to_dict = getattr(type(fc_args), "to_dict", None)
-            if callable(to_dict):
-                return to_dict(fc_args)
-        except Exception:
-            pass
-        # last-resort coercion
-        try:
-            return dict(fc_args)
+            if isinstance(fc_args, str):
+                return json.loads(fc_args)
+        except json.JSONDecodeError:
+            return {}
         except Exception:
             return {}
+        return {}
+
+    def _format_tool_output(self, payload: Dict[str, Any]) -> str:
+        try:
+            return json.dumps(payload, ensure_ascii=False)
+        except Exception:
+            return json.dumps({"error": "Failed to serialize tool output."})
+
+    def _annotation_to_schema(self, annotation: Any) -> Dict[str, Any]:
+        if annotation in [int]:
+            return {"type": "integer"}
+        if annotation in [float]:
+            return {"type": "number"}
+        if annotation in [bool]:
+            return {"type": "boolean"}
+        if annotation in [list, List]:
+            return {"type": "array", "items": {}}
+        if annotation in [dict, Dict]:
+            return {"type": "object"}
+        origin = get_origin(annotation)
+        if origin is list:
+            return {"type": "array", "items": {}}
+        if origin is dict:
+            return {"type": "object"}
+        if origin is Union:
+            args = [arg for arg in get_args(annotation) if arg is not type(None)]
+            if args:
+                return self._annotation_to_schema(args[0])
+        return {"type": "string"}
+
+    def _tool_to_schema(self, tool: Any) -> Dict[str, Any]:
+        sig = inspect.signature(tool)
+        properties: Dict[str, Any] = {}
+        required: List[str] = []
+        for name, param in sig.parameters.items():
+            if name == "user_id":
+                continue
+            annotation = param.annotation if param.annotation is not inspect._empty else str
+            properties[name] = self._annotation_to_schema(annotation)
+            if param.default is inspect._empty:
+                required.append(name)
+        description = (tool.__doc__ or "").strip()
+        return {
+            "type": "function",
+            "function": {
+                "name": tool.__name__,
+                "description": description,
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                },
+            },
+        }
+
+    def _get_response_text(self, response: Any) -> str:
+        output_text = getattr(response, "output_text", None)
+        if output_text:
+            return output_text
+        outputs = getattr(response, "output", None) or []
+        for item in outputs:
+            if getattr(item, "type", None) == "message":
+                content = getattr(item, "content", None) or []
+                parts = [getattr(part, "text", "") for part in content if getattr(part, "type", "") == "output_text"]
+                if parts:
+                    return "".join(parts)
+        return str(response)
 
     def generate_response_with_tools(
         self,
@@ -193,17 +234,15 @@ class Agent:
         prompt = "\n\n".join(prompt_parts)
 
         try:
-            chat = client.chats.create(
+            tool_specs = [self._tool_to_schema(tool) for tool in whitelisted_tool_map.values()]
+            response = client.responses.create(
                 model=self.model,
-                config=types.GenerateContentConfig(
-                    tools=list(whitelisted_tool_map.values()),
-                    system_instruction=self.system_instruction,
-                    # Strict mode: do NOT allow SDK to auto-execute tools.
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
+                input=[
+                    {"role": "system", "content": self.system_instruction},
+                    {"role": "user", "content": prompt},
+                ],
+                tools=tool_specs,
             )
-
-            response = chat.send_message(prompt)
 
             # Manual tool call dispatch loop (supports chained tool calls)
             max_tool_rounds = 3
@@ -212,24 +251,25 @@ class Agent:
                 if not function_calls:
                     break
 
-                tool_response_parts: List[types.Part] = []
+                tool_outputs: List[Dict[str, Any]] = []
                 for function_call in function_calls:
                     tool_name = getattr(function_call, "name", None) or ""
                     tool_func = whitelisted_tool_map.get(tool_name)
 
                     if not tool_func:
                         logger.warning(f"Model attempted to call non-whitelisted tool: {tool_name}")
-                        tool_response_parts.append(
-                            types.Part(
-                                tool_response=types.ToolResponse(
-                                    name=tool_name,
-                                    response={"error": f"Tool '{tool_name}' is not available."},
-                                )
-                            )
+                        tool_outputs.append(
+                            {
+                                "type": "function_call_output",
+                                "call_id": getattr(function_call, "call_id", ""),
+                                "output": self._format_tool_output(
+                                    {"error": f"Tool '{tool_name}' is not available."}
+                                ),
+                            }
                         )
                         continue
 
-                    args = self._args_to_dict(getattr(function_call, "args", None))
+                    args = self._args_to_dict(getattr(function_call, "arguments", None))
 
                     # Ensure user_id is always present unless explicitly provided
                     if "user_id" not in args:
@@ -237,45 +277,50 @@ class Agent:
 
                     try:
                         result = tool_func(**args)
-                        tool_response_parts.append(
-                            types.Part(
-                                tool_response=types.ToolResponse(
-                                    name=tool_name,
-                                    response={"result": result},
-                                )
-                            )
+                        tool_outputs.append(
+                            {
+                                "type": "function_call_output",
+                                "call_id": getattr(function_call, "call_id", ""),
+                                "output": self._format_tool_output({"result": result}),
+                            }
                         )
                     except Exception as e:
                         logger.error(f"Tool '{tool_name}' failed: {e}", exc_info=True)
-                        tool_response_parts.append(
-                            types.Part(
-                                tool_response=types.ToolResponse(
-                                    name=tool_name,
-                                    response={"error": f"Tool '{tool_name}' failed: {type(e).__name__}"},
-                                )
-                            )
+                        tool_outputs.append(
+                            {
+                                "type": "function_call_output",
+                                "call_id": getattr(function_call, "call_id", ""),
+                                "output": self._format_tool_output(
+                                    {"error": f"Tool '{tool_name}' failed: {type(e).__name__}"}
+                                ),
+                            }
                         )
 
                 # Send tool results back to the model in a single message
-                response = chat.send_message(types.Content(parts=tool_response_parts))
+                response = client.responses.create(
+                    model=self.model,
+                    input=tool_outputs,
+                    previous_response_id=getattr(response, "id", None),
+                    tools=tool_specs,
+                )
 
             # If we still have function calls after max rounds, fail closed.
             if self._extract_function_calls(response):
                 return "I hit an internal tool-call loop limit. Try rephrasing or simplifying the request."
 
-            return getattr(response, "text", None) or str(response)
+            return self._get_response_text(response)
 
-        except exceptions.ResourceExhausted as e:
-            logger.warning(f"Gemini 429/ResourceExhausted: {e}")
+        except RateLimitError as e:
+            logger.warning(f"OpenAI 429/RateLimitError: {e}")
             return "LLM is rate-limited right now. I can still add/list/complete tasks. Try again shortly."
 
-        except exceptions.GoogleAPICallError as e:
-            logger.error(f"Gemini API Call Error: {e}", exc_info=True)
+        except (APIError, APIConnectionError) as e:
+            logger.error(f"OpenAI API Error: {e}", exc_info=True)
             return "I hit a temporary issue talking to Gemini. Try again shortly (tasks still work)."
 
         except Exception as e:
             # Propagate unknown errors so main.py can trigger Safe Mode
-            logger.error(f"Gemini General Exception: {e}", exc_info=True)
+            logger.error(f"OpenAI General Exception: {e}", exc_info=True)
             raise e
 
     def generate_morning_briefing(self, user_id: str) -> str:
@@ -296,10 +341,16 @@ class Agent:
         )
 
         try:
-            response = client.models.generate_content(model=self.model, contents=prompt)
-            return getattr(response, "text", None) or ""
+            response = client.responses.create(
+                model=self.model,
+                input=[
+                    {"role": "system", "content": self.system_instruction},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return self._get_response_text(response)
 
-        except exceptions.ResourceExhausted as e:
+        except RateLimitError as e:
             logger.warning(f"Morning Briefing Skipped (Rate Limit): {e}")
             return ""
 
