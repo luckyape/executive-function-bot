@@ -1,12 +1,12 @@
 # The Life OS (Firebase + MCP Edition)
 
-A proactive "Executive Coach" Telegram bot built on Firebase Cloud Functions and Google Gemini Pro using the MCP (Model Context Protocol) pattern for tools.
+A proactive "Executive Coach" Telegram bot built on Firebase Cloud Functions and OpenAI GPT-4o using the MCP (Model Context Protocol) pattern for tools.
 
 ## Architecture
 
 - **Backend**: Firebase Cloud Functions (2nd Gen) - Serverless Python.
 - **Database**: Google Cloud Firestore (NoSQL).
-- **Intelligence**: Google Gemini Pro (via `google-genai`).
+- **Intelligence**: OpenAI GPT-4o (via `openai`).
 - **Interface**: Telegram Bot API (Webhook).
 - **Tooling**: MCP-style tool definitions defined in `tools.py` and consumed by the Agent.
 
@@ -20,9 +20,9 @@ A proactive "Executive Coach" Telegram bot built on Firebase Cloud Functions and
 
 - Python 3.11+
 - Firebase CLI (`npm install -g firebase-tools`)
-- A Firebase Project (Blaze plan required for external network calls to Telegram/Gemini).
+- A Firebase Project (Blaze plan required for external network calls to Telegram/OpenAI).
 - Telegram Bot Token.
-- Gemini API Key.
+- OpenAI API Key.
 
 ## Setup
 
@@ -36,7 +36,7 @@ A proactive "Executive Coach" Telegram bot built on Firebase Cloud Functions and
     ```bash
     cp .env.example .env
     ```
-    Fill in `TELEGRAM_TOKEN` and `GEMINI_API_KEY`.
+    Fill in `TELEGRAM_TOKEN` and `OPENAI_API_KEY`.
 
 3.  **Firebase Init**:
     If you haven't already:

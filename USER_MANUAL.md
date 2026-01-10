@@ -1,7 +1,7 @@
 # The Life OS Telegram Bot — User Manual (v3.0)
 
 ## Upgrade Note (Version 3.0-flash)
-The Life OS has been upgraded to run on **Gemini 3.0 Flash**. This new engine supports advanced reasoning and faster responses.
+The Life OS has been upgraded to run on **OpenAI GPT-4o**. This new engine supports advanced reasoning and faster responses.
 
 ## What this app does
 The Life OS bot is a Telegram-based executive coach. It helps you:
