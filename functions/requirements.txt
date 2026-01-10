@@ -1,5 +1,5 @@
 firebase-admin
 firebase-functions
-google-genai
+openai
 python-telegram-bot
 python-dotenv

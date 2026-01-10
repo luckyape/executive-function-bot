@@ -8,7 +8,7 @@ import sys
 sys.modules['firebase_admin'] = MagicMock()
 sys.modules['firebase_admin.credentials'] = MagicMock()
 sys.modules['firebase_admin.firestore'] = MagicMock()
-sys.modules['google.generativeai'] = MagicMock()
+sys.modules['openai'] = MagicMock()
 
 # Mock the Agent class entirely
 mock_agent_instance = MagicMock()
