@@ -19,7 +19,7 @@ class Agent:
     def __init__(self):
         self.api_key = get_config("OPENAI_API_KEY")
         self.client = None
-        self.model = "gpt-4.1-mini"
+        self.model = "gpt-4o"
 
         self.system_instruction = (
             "You are a supportive, pragmatic friend-coach and expert guide for this Life OS app (Version 3.0). "
