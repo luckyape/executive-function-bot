@@ -339,8 +339,7 @@ class Agent:
 
         except (APIError, APIConnectionError) as e:
             logger.error(f"OpenAI API Error: {e}", exc_info=True)
-            return "I hit a temporary issue talking to Gemini. Try again shortly (tasks still work)."
-
+            return "I hit a temporary issue talking to the LLM API. Try again shortly (tasks still work)."
         except Exception as e:
             # Propagate unknown errors so main.py can trigger Safe Mode
             logger.error(f"OpenAI General Exception: {e}", exc_info=True)
